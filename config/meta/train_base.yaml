@@ -1,0 +1,131 @@
+# @package _global_
+
+run_type: "train"
+debug_lvl: 0
+global_seed: 1205
+cuda: True
+CPU_passMark:
+GPU_passMark:
+
+log_lvl: INFO
+tb_logging: False
+tb_log_path: 'logs/tb/'
+log_path: 'logs/'
+checkpoint_save_path: 'checkpoints/'
+checkpoint_load_path:
+
+test_cfg:
+  data_file_path:
+  checkpoint_load_path:
+  saved_res_dir: None
+
+val_dataset:
+val_size: 512
+load_local_train_dataset: True
+generator_args: {}
+
+train_cfg:
+  run_name: 'Train_base_PI'
+  resume: False
+  model_ckp:
+  train_data: use_local
+  train_dataset: ${fixed_train_set}
+  nr_train_samples: 100000
+  graph_size: ${graph_size}
+  coords_sampling_dist: ${coords_dist}
+  fleet_size: ${model_cfg.model_args.max_fleet_length}
+  val_split: 0.2
+  load_in_runner: False
+
+  train_with_HGS: False
+  HGS_on_the_fly: False
+  hgs_exe_path: "HGS/HGS/build/hgs"
+  hgs_target_path:
+  hgs_target_length:
+  hgs_time: 0.5
+
+  gpus: 1
+  num_workers: 0
+  device: cuda
+  vrp_size: ${graph_size}
+  save_dir: ${checkpoint_save_path}
+  checkpoint_epochs: 50
+  batch_size: 32
+  epoch_size: 120000
+  epoch_start: 0
+  n_epochs: 200
+  log_every: 200
+  val_diag_every: 10
+  val_diag_batches: 1
+
+  lr: 0.0001
+  wd: 0.0002
+  grad_clip: 1.0
+
+  data_distribution:
+  log_step: 50
+
+  # -------- BASE SUPVRP / PERM-INV ONLY --------
+  load: True                    # keep, because your base loss path decodes loads
+  perm_inv_loss: True           # ON (this triggers the base loss block)
+  load_l: False                 # OFF (keep simplest first)
+  pen_l: True                   # ON if your loss_cfg.with_penalty=True
+
+  # -------- TURN OFF EVERYTHING ELSE --------
+  lambda_order: 0.0
+  with_regret: False
+  use_distill: False
+
+  agg: "mean"
+  lambda_deg: 0.0
+  lambda_ent: 0.0
+
+  regret_batches: 0
+  regret_weight: 0.0
+
+  lambda_cover: 0.0
+  cover_tau_out: 1.0
+  cover_tau_in: 1.0
+  cover_power: 1.0
+
+  lambda_antidepot: 0.0
+  pos_weight_scale: 1.0
+  start_weight: 0.2
+  return_weight: 0.2
+
+  lambda_succ: 0.0
+
+  rank_loss: False
+  rank_k: 32
+  rank_hard_topk: 128
+  rank_margin: 2.0
+  match_loss: False
+
+  use_decode_rl: False
+  decode_rl_every: 999999
+  decode_rl_prob: 0.0
+  decode_rl_batch: 0
+  decode_rl_weight: 0.0
+  decode_tau: 2.0
+  use_eliteK: False
+  decode_rl_K: 1
+
+  v_cost: 0.0
+  val_decode_seed: 1234
+  val_decode_mode: greedy
+
+  no_tensorboard: False
+  tensorboard_logdir: ${log_path}
+  no_progress_bar: False
+  get_val_set: False
+  normalize_data: ${normalize_data}
+
+loss_cfg:
+  simple_loss: False
+  no_perms: False            # IMPORTANT: permutation invariance ON
+  size_average: True
+  with_penalty: ${train_cfg.pen_l}
+  with_load_loss: ${train_cfg.load_l}
+  start_weight: 0.1
+  pen_w: 0.2
+  load_w: 0.3

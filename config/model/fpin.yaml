@@ -1,0 +1,38 @@
+# @package _global_
+
+# POLICY model
+model: "fpin"
+
+# model params
+model_cfg:
+  model_type: "fpin-attn"
+  model_args:
+    layers: 9
+    depot_in_dim: 4 # 4 --> if NOT use seperate graph pre-embedding
+    cities_in_dim: 3  # 3 --> if NOT use seperate graph pre-embedding
+    fleet_in_dim: 260 #4 --> if NOT use seperate vehicle ID pre-embedding
+    max_fleet_length: 11 # 6
+    cities_length: ${graph_size} # 50
+    main_dim: 256
+    avg_pool: False
+    residual: True
+    norm: True
+    ff_hidden_dim: 1024
+    dropout: 0.0
+    self_pool: False
+    embedding_norm: True
+    weighting: True
+    with_loads: True  # ${train_cfg.load}
+    use_attn: True # False
+    regret_batches: ${train_cfg.batch_size} #1
+    seed_mode: # "fast"  # or "sbs"
+    nr_seeds: 12
+    seed_sigma: 0.5
+    add_demand_weights: False
+    # n_soft_layers:
+  loss_args:
+    simple_loss: False
+    no_perms: False
+    size_average: True
+    with_penalty: ${train_cfg.pen_l}
+    with_loads_loss: ${train_cfg.load_l}

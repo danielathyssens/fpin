@@ -1,0 +1,140 @@
+# @package _global_
+
+run_type: "resume"
+debug_lvl: 0
+global_seed: 1205
+cuda: True
+
+log_lvl: INFO
+tb_logging: False
+tb_log_path: "logs/tb/"
+log_path: "logs/"
+checkpoint_save_path: "checkpoints/"
+checkpoint_load_path:
+
+test_cfg:
+  # IMPORTANT: set this to the checkpoint you want to resume from
+  checkpoint_load_path: outputs/cvrp_20_uniform/train/PIM/2026-03-08_21-23-02/checkpoints/best-epoch-100.pt
+  data_file_path:
+  saved_res_dir: None
+
+# you can keep these, they won't hurt
+val_dataset:
+val_size: 512
+load_local_train_dataset: True
+generator_args: {}
+
+# training opts still matter because train_model continues training using opts
+train_cfg:
+  run_name: "Resume_n20_k4_unf_attn"
+  resume: True
+  model_ckp: ${test_cfg.checkpoint_load_path}
+
+  train_data: use_local
+  train_dataset: ${fixed_train_set}
+  nr_train_samples: 100000
+
+  graph_size: ${graph_size}
+  coords_sampling_dist: ${coords_dist}
+  fleet_size: ${model_cfg.model_args.max_fleet_length}
+
+  val_split: 0.2
+  load_in_runner: False
+
+  train_with_HGS: False
+  HGS_on_the_fly: False
+  hgs_exe_path: "HGS/HGS/build/hgs"
+  hgs_target_path:
+  hgs_target_length:
+  hgs_time: 0.5
+
+  gpus: 1
+  num_workers: 0
+  device: cuda
+  vrp_size: ${graph_size}
+  save_dir: ${checkpoint_save_path}
+
+  checkpoint_epochs: 50
+  batch_size: 128
+  epoch_size: 120000
+
+  # you can also override how far to continue
+  n_epochs: 150
+  log_every: 200
+  val_diag_every: 10
+  val_diag_batches: 1
+
+  lr: 0.0001
+  wd: 0.0002
+  grad_clip: 0.0
+
+  data_distribution:
+  log_step: 50
+
+
+  # keep whatever loss regime you want to continue with:
+  # (either your bells+whistles or base-only; your choice)
+  perm_inv_loss: True           # ON (this triggers the base loss block)
+  load: True                    # keep, because your base loss path decodes loads
+  load_l: False                 # OFF (keep simplest first)
+  pen_l: True                   # ON if your loss_cfg.with_penalty=True
+
+
+  # -------- TURN OFF EVERYTHING ELSE --------
+  lambda_order: 0.0
+  with_regret: False
+  use_distill: False
+
+  agg: "mean"
+  lambda_deg: 0.0
+  lambda_ent: 0.0
+
+  regret_batches: 0
+  regret_weight: 0.0
+
+  lambda_cover: 0.0
+  cover_tau_out: 1.0
+  cover_tau_in: 1.0
+  cover_power: 1.0
+
+  lambda_antidepot: 0.0
+  pos_weight_scale: 1.0
+  start_weight: 0.2
+  return_weight: 0.2
+
+  lambda_succ: 0.0
+
+  rank_loss: False
+  rank_k: 32
+  rank_hard_topk: 128
+  rank_margin: 2.0
+  match_loss: False
+
+  use_decode_rl: False
+  decode_rl_every: 999999
+  decode_rl_prob: 0.0
+  decode_rl_batch: 0
+  decode_rl_weight: 0.0
+  decode_tau: 2.0
+  use_eliteK: False
+  decode_rl_K: 1
+
+  v_cost: 0.0
+  val_decode_seed: 1234
+  val_decode_mode: greedy
+
+  no_tensorboard: False
+  tensorboard_logdir: ${log_path}
+  no_progress_bar: False
+  get_val_set: False
+  normalize_data: ${normalize_data}
+
+loss_cfg:
+  simple_loss: False
+  no_perms: False
+  size_average: True
+  with_penalty: ${train_cfg.pen_l}
+  with_load_loss: ${train_cfg.load_l}
+  start_weight: 0.1
+  pen_w: 0.2
+  load_w: 0.3
