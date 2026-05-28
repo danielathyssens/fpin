@@ -13,7 +13,8 @@ class VRP_Net(nn.Module):
                  avg_pool, residual, norm, ff_hidden_dim, dropout,
                  self_pool, embedding_norm, weighting, with_loads,
                  use_attn, regret_batches, seed_mode="fast", nr_seeds=8, seed_sigma=0.5,
-                 add_demand_weights=False):
+                 add_demand_weights=False, vehicle_cond_edge_head=True,
+                 sinkhorn_assignment=False, sinkhorn_iters=3):
         super().__init__()
 
         ##### ENCODER #####
@@ -72,12 +73,40 @@ class VRP_Net(nn.Module):
         # Setup DECODER attention layer
         self.edge_attn = nn.MultiheadAttention(embed_dim=main_dim, num_heads=4, batch_first=True)
 
-        # linear projection (DECODER)
+        # linear projection (DECODER) -- legacy bilinear head (vehicle-agnostic edge_kv,
+        # vehicle enters only via final dot product). Kept for backward-compat / ablation.
         self.edge_proj = nn.Sequential(
             nn.Linear((2 * main_dim) + 1, 2 * main_dim),  # match the conv setup
             nn.ReLU(),
             nn.Linear(2 * main_dim, main_dim)
         )
+
+        # E1: vehicle-conditioned edge head -- MLP over [vehicle, from-node, to-node, dist],
+        # i.e. the vehicle is mixed into the edge representation BEFORE scoring (PIM-style,
+        # richer per-vehicle differentiation than the bilinear head). E2: learnable decode
+        # temperature. Both only instantiated when the new head is active, so legacy
+        # checkpoints (bilinear head) still load with strict=True.
+        self.vehicle_cond_edge_head = vehicle_cond_edge_head
+        if vehicle_cond_edge_head:
+            self.edge_mlp = nn.Sequential(
+                nn.Linear(3 * main_dim + 1, main_dim), nn.ReLU(),
+                nn.Linear(main_dim, main_dim), nn.ReLU(),
+            )
+            self.edge_score = nn.Linear(main_dim, 1)
+            self.log_temperature = nn.Parameter(torch.zeros(1))  # temp = exp(.), init 1.0
+
+        # E3: Sinkhorn assignment head. Computes a soft customer->vehicle assignment
+        # (Sinkhorn-normalized so each customer's vehicle distribution is a simplex), and
+        # biases the per-vehicle edge logits toward each vehicle's assigned customers. This
+        # structurally enforces the amortized-clustering / bin-packing constraint (each
+        # customer served by one vehicle) and is trained end-to-end via the existing
+        # next-node loss (no extra labels). Off by default -> retrain-1 (E1) unaffected.
+        self.sinkhorn_assignment = sinkhorn_assignment
+        self.sinkhorn_iters = sinkhorn_iters
+        if sinkhorn_assignment:
+            self.assign_q = nn.Linear(main_dim, main_dim)
+            self.assign_k = nn.Linear(main_dim, main_dim)
+            self.assign_bias_weight = nn.Parameter(torch.ones(1))
 
         # LOAD
         self.with_loads = with_loads
@@ -143,43 +172,60 @@ class VRP_Net(nn.Module):
                                                     weights=sets_weights)
 
         ######### OUTPUT CONSTRUCTION ########
-        # fleet: [batch_size, M, d_model] → queries
-        # base_nodes: [batch_size, N×N, 2×d_model] → keys/values
-        cities = torch.cat((depot, customers), dim=1)  # (b, n+1, d_model)
+        cities = torch.cat((depot, customers), dim=1)  # (b, n, d_model)
         main_dim = cities.size(2)
-        # Create base_nodes by combining all pairs of cities (including depot)
-        base_nodes = torch.cat(
-            (cities.unsqueeze(2).expand(b, n, n, main_dim), cities.unsqueeze(1).expand(b, n, n, main_dim)),
-            dim=3)  # (b, n, n, 2*main_dim)
-        base_nodes = base_nodes.view(b, n * n, 2 * main_dim)  # (b, N×N, 2*main_dim)
 
-        # Add pairwise distances
-        rel_dist = dists.view(b, n * n, 1)  # (b, N×N, 1)
-        base_nodes_with_dist = torch.cat([base_nodes, rel_dist], dim=2)  # (b, N×N, 2*main_dim + 1)
-
-        # Project into key/value space
-        edge_kv = self.edge_proj(base_nodes_with_dist)  # (b, N×N, d_model)
-
-        # Prepare fleet queries
-        # Vehicles attend to nodes
+        # Vehicle queries: vehicles attend to nodes, then fuse (shared by both heads)
         veh_ctx, _ = self.veh_to_node_attn(
-            query=fleet,  # [B,M,D]
-            key=cities,  # [B,N,D]
-            value=cities,  # [B,N,D]
+            query=fleet, key=cities, value=cities,
         )  # -> [B,M,D]
-
         veh_ctx = self.veh_ctx_ln(veh_ctx)
         fleet_cond = self.veh_fuse(torch.cat([fleet, veh_ctx], dim=-1))  # [B,M,D]
 
-        temperature = 0.5
-        fleet_q_scaled = fleet_cond / temperature  # (b, M, d_model)
+        if self.vehicle_cond_edge_head:
+            # E1: vehicle-conditioned edge MLP over [vehicle, h_i, h_j, dist_ij], scored per
+            # vehicle. The vehicle is mixed into the edge representation BEFORE scoring, so
+            # each vehicle gets a genuinely distinct, richer transition map (vs. the legacy
+            # bilinear head where the edge encoding is vehicle-agnostic). The per-vehicle
+            # loop keeps peak memory at O(b*n*n*d) and frees it each step.
+            h_i = cities.unsqueeze(2).expand(b, n, n, main_dim)  # from-node
+            h_j = cities.unsqueeze(1).expand(b, n, n, main_dim)  # to-node
+            dist_e = dists.unsqueeze(-1)  # [b, n, n, 1]
+            scores = []
+            for mm in range(m):
+                veh_m = fleet_cond[:, mm].view(b, 1, 1, main_dim).expand(b, n, n, main_dim)
+                edge_in = torch.cat([veh_m, h_i, h_j, dist_e], dim=-1)  # [b, n, n, 3d+1]
+                e = self.edge_mlp(edge_in)                              # [b, n, n, d]
+                scores.append(self.edge_score(e).squeeze(-1))          # [b, n, n]
+            edge_logits = torch.stack(scores, dim=1)                    # [b, m, n, n]
+            edge_logits = edge_logits / torch.exp(self.log_temperature)  # E2: learnable temp
+        else:
+            # Legacy bilinear head: vehicle-agnostic edge_kv, vehicle enters via final dot.
+            base_nodes = torch.cat(
+                (cities.unsqueeze(2).expand(b, n, n, main_dim), cities.unsqueeze(1).expand(b, n, n, main_dim)),
+                dim=3).view(b, n * n, 2 * main_dim)
+            rel_dist = dists.view(b, n * n, 1)
+            edge_kv = self.edge_proj(torch.cat([base_nodes, rel_dist], dim=2))  # (b, N*N, d)
+            fleet_q_scaled = fleet_cond / 0.5
+            edge_logits = torch.matmul(
+                fleet_q_scaled, edge_kv.transpose(1, 2)
+            ) / (main_dim ** 0.5)
+            edge_logits = edge_logits.view(b, m, n, n)
 
-        # --- Explicit edge logits on (i, j) pairs
-        edge_logits = torch.matmul(
-            fleet_q_scaled, edge_kv.transpose(1, 2)
-        ) / (fleet_q_scaled.size(-1) ** 0.5)  # [B, M, N*N]
-
-        edge_logits = edge_logits.view(b, m, n, n)
+        # E3: Sinkhorn customer->vehicle assignment -> bias incoming edges so each vehicle
+        # focuses on its assigned customers (enforces one-vehicle-per-customer structure).
+        if self.sinkhorn_assignment:
+            q = self.assign_q(fleet_cond)                      # [b, m, d]
+            k = self.assign_k(cities[:, 1:, :])                # [b, n-1, d]  customers only
+            S = torch.matmul(q, k.transpose(1, 2)) / (main_dim ** 0.5)  # [b, m, n-1]
+            logP = S
+            for _ in range(self.sinkhorn_iters):
+                logP = logP - torch.logsumexp(logP, dim=1, keepdim=True)  # customer -> simplex over vehicles
+                logP = logP - torch.logsumexp(logP, dim=2, keepdim=True)  # vehicle  -> over customers
+            logP = logP - torch.logsumexp(logP, dim=1, keepdim=True)      # final: log P(vehicle | customer)
+            bias = torch.zeros_like(edge_logits)
+            bias[:, :, :, 1:] = (self.assign_bias_weight * logP).unsqueeze(2)  # broadcast over from-node
+            edge_logits = edge_logits + bias
 
         # Mask self-loops except depot
         if self._eye_cache_n != n or self._eye_cache.numel() == 0 or self._eye_cache.device != depot.device:
@@ -189,8 +235,12 @@ class VRP_Net(nn.Module):
             self._eye_cache_n = n
         edge_logits = edge_logits.masked_fill(self._eye_cache[None, None, :, :], -30.0)
 
-        # Probabilities for decoding (optional)
-        edge_probs_for_decode = torch.sigmoid(edge_logits)  # [B, M, N, N]
+        # Probabilities for decoding: MUST match the training normalization, which is
+        # log_softmax(logits, dim=-1) (per (vehicle, from-node) distribution over the next
+        # node). The previous sigmoid(edge_logits) treated edges as independent and was
+        # inconsistent with training -> incoherent heatmap for greedy decoding. Use the
+        # next-node softmax so decoders read the model the way it was trained.
+        edge_probs_for_decode = torch.softmax(edge_logits, dim=-1)  # [B, M, N, N] = P(j | m, i)
 
         return edge_logits, edge_probs_for_decode
 

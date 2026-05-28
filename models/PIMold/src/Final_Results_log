@@ -1,0 +1,61 @@
+
+###The classes and functions defined in this file originate from the source code in Kaempfer & Wolff et al. (2018) and were amended for the VRP###
+
+
+
+#### FINAL RESULTS LOG #####
+
+VRP20
+=====
+
+bs: 128, stwe:0.1, pen_w:0.3, load_w: 0.5 (only 35 eps)
+---------------------------------
+REJ + guarantee:
+----------------
+Ran testing in 00:11:17.81
+count fails GREEDY: 0
+GREEDY percentage solved 100.0
+FINAL OBJ ORIG (GREEDY): 6.65090659506539
+AVG Nr of routes ORIG 3.84200306591722
+total_cost_v ORIG 141.1210139021681
+FINAL OBJ POSTPROCESSED: 6.2043241
+AVG Nr of routes POSTPROCESSED 3.8215
+total_cost_v POSTPROCESSED 139.9568241
+
+stwe:0.5, pen_w:0.3, load_w: 0.5
+---------------------------------
+REJ + guarantee:
+----------------
+Ran testing in 00:10:46.94
+count fails GREEDY: 0
+GREEDY percentage solved 100.0
+FINAL OBJ ORIG (GREEDY): 6.580913896408058
+AVG Nr of routes ORIG 3.861482009988788
+total_cost_v ORIG 141.73278424601565
+FINAL OBJ POSTPROCESSED: 6.178972999999999
+AVG Nr of routes POSTPROCESSED 3.8211
+total_cost_v POSTPROCESSED 139.917473
+
+
+VRP50
+=====
+bs: 128, stwe:0.5, pen_w:0.1, load_w: 0.3 (>70 eps)
+---------------------------------------------------
+REJ + guarantee:
+----------------
+Ran testing in 00:37:10.79
+count fails GREEDY: 0
+GREEDY percentage solved 100.0
+FINAL OBJ ORIG (GREEDY): 12.88207164725042
+AVG Nr of routes ORIG 6.7584652374273695
+total_cost_v ORIG 350.8053335186189
+FINAL OBJ POSTPROCESSED: 10.873329
+AVG Nr of routes POSTPROCESSED 6.7291
+total_cost_v POSTPROCESSED 347.328329
+
+bs: 128, stwe:0.1, pen_w:0.1, load_w: 0.3
+---------------------------------------------------
+REJ + guarantee:
+----------------
+
+

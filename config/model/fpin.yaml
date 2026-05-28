@@ -29,6 +29,9 @@ model_cfg:
     nr_seeds: 12
     seed_sigma: 0.5
     add_demand_weights: False
+    vehicle_cond_edge_head: True  # E1: vehicle-conditioned edge MLP head (set False to load legacy bilinear-head checkpoints)
+    sinkhorn_assignment: False    # E3: Sinkhorn customer->vehicle assignment bias (retrain-2). Off => retrain-1 unaffected
+    sinkhorn_iters: 3
     # n_soft_layers:
   loss_args:
     simple_loss: False

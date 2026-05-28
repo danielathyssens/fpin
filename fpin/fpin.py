@@ -21,7 +21,7 @@ from fpin.utils import DatasetVrp, DatasetVrp100, DatasetVrpFromNPZ, get_prelimi
 from fpin.utils import prep_data_fpin, make_valid_and_adjust, make_RPSolution, get_travel_costs
 from fpin.utils_all.print_out import print_func
 from fpin.utils_all.get_path import load_estimate_capacity
-from fpin.utils_all.decoder_fallback import decode_vehicle_assignment_1, decode_vehicle_assignment_v2, decode_giant_tour_split_dp
+from fpin.utils_all.decoder_fallback import decode_vehicle_assignment_1, decode_vehicle_assignment_v2, decode_giant_tour_split_dp, decode_vehicle_assignment_faithful, decode_transition_following
 from fpin.VRP_Loss1 import VRPLoss
 
 from torch.utils.tensorboard import SummaryWriter
@@ -697,7 +697,27 @@ def eval_model(model: VRP_Net,
                 cost_v.append(cost_greedy + (n_routes_greedy * v_cost))
 
             elif opts.decode_vehicle_assignment:
-                if opts.decode_v_assign_type == "assign_plain":
+                if opts.decode_v_assign_type == "assign_transition":
+                    # decode the model AS TRAINED: per-vehicle next-node transitions
+                    # (softmax over successors), walking from the depot with capacity masking.
+                    routes_v, costs_v, stats = decode_transition_following(
+                            edge_logits=logits,
+                            dists=dists_b,
+                            demands=dem_b.squeeze(1),
+                            max_nr_v_eval=opts.nr_vehicles_eval,
+                    )
+                elif opts.decode_v_assign_type == "assign_faithful":
+                    # Y_k-faithful: order routes purely by the learned per-vehicle heatmap
+                    # (no geometry term), exposing the model's raw routing quality.
+                    routes_v, costs_v, stats = decode_vehicle_assignment_faithful(
+                            edge_logits=logits,
+                            dists=dists_b,
+                            demands=dem_b.squeeze(1),
+                            max_nr_v_eval=opts.nr_vehicles_eval,
+                            beam_width=int(getattr(opts, "faithful_beam_width", 1)),
+                            use_pooled_order=bool(getattr(opts, "faithful_pooled_order", False)),
+                    )
+                elif opts.decode_v_assign_type == "assign_plain":
                     routes_v, costs_v, stats = decode_vehicle_assignment_1(           #     edge_logits=logits,
                             edge_logits=logits,
                             dists=dists_b,

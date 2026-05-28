@@ -1,0 +1,9 @@
+NGPU-19 RUNS:
+command for run 678895:
+srun /home/thyssens/miniconda3/envs/GPU/bin/python train1.py --vrp_size 20 --batch_size 128 --save_dir '/home/thyssens/job_vrp20/outs/' --load True --load_l True --pen_l True
+
+
+command for run :
+(bs=64 too large - CUDA out of Mem)
+srun /home/thyssens/miniconda3/envs/GPU/bin/python train1.py --vrp_size 50 --batch_size 32 --save_dir '/home/thyssens/job_vrp50/outs/' --load True --load_l True --pen_l True
+

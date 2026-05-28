@@ -50,6 +50,9 @@ eval_opts_cfg:
   repair_greedy: False # False --> here no vehicle slack! nr_vehicles_eval needs to match M input to model
   giant_tour_split: False # True  # --> either this or repair_greedy needs to be True
   decode_vehicle_assignment: True # --> either this or giant_tour_split or epair_greedy needs to be True
+  decode_v_assign_type: assign_plain # assign_plain | assign_faithful (Y_k-faithful, no geometry) | else -> v2
+  faithful_beam_width: 1        # 1 = greedy over learned edges; >1 = beam search
+  faithful_pooled_order: False  # False = per-vehicle Y_m ordering; True = pooled max_m Y (GT+split signal)
   coords_dist: ${coords_dist}
   guarantee_solution: False # True
   nr_vehicles: ${env_kwargs.sampling_args.k}

@@ -1043,6 +1043,209 @@ def decode_vehicle_assignment_1(
     return all_routes, all_costs, None
 
 
+def _order_route_by_heatmap(Am, nodes, beam_width=1):
+    """Order `nodes` into a depot-rooted route by FOLLOWING the model's own per-vehicle
+    edge logits `Am` (shape [N, N]), with NO geometry term. Maximizes the total learned
+    edge score sum_t Am[pi_t, pi_{t+1}] along the path (depot index 0 is the start).
+
+    beam_width == 1 -> greedy (pick argmax_j Am[cur, j] each step).
+    beam_width  > 1 -> beam search over the learned edge scores.
+    """
+    nodes = list(nodes)
+    if len(nodes) <= 1:
+        return nodes
+    # beam entries: (cumulative_score, last_node, remaining_frozenset, path_list)
+    beams = [(0.0, 0, frozenset(nodes), [])]
+    for _ in range(len(nodes)):
+        cand = []
+        for sc, last, rem, path in beams:
+            for j in rem:
+                cand.append((sc + float(Am[last, j]), j, rem - {j}, path + [j]))
+        cand.sort(key=lambda x: x[0], reverse=True)
+        beams = cand[: max(1, beam_width)]
+    return beams[0][3]
+
+
+def decode_vehicle_assignment_faithful(
+        edge_logits,      # [B, M, N, N]
+        dists,            # [B, N, N]
+        demands,          # [B, N]
+        capacity=1.0,
+        max_nr_v_eval=11,
+        depot_weight=1.0,
+        beam_width=1,
+        use_pooled_order=False,
+):
+    """Y_k-faithful variant of decode_vehicle_assignment_1.
+
+    The capacity-constrained node-to-vehicle assignment (steps 1-2) is IDENTICAL to
+    decode_vehicle_assignment_1 (so feasibility and vehicle count are unchanged). The only
+    difference is route reconstruction: each vehicle's tour is ordered purely by FOLLOWING
+    the learned heatmap (greedy or beam), with the geometry/distance term removed. This
+    attributes raw route quality to the learned model rather than to a distance heuristic or
+    OR-Tools post-processing.
+
+    use_pooled_order:
+      False -> order each cluster by that vehicle's own logits Y_m  (per-vehicle signal).
+      True  -> order each cluster by the pooled logits max_m Y_{m,i,j}  (the same global
+               signal the giant-tour+split decoder uses, which routes well empirically).
+    """
+    device = edge_logits.device
+    B, M_logits, N, _ = edge_logits.shape
+    M = min(M_logits, max_nr_v_eval)
+
+    all_routes = []
+    all_costs = torch.zeros(B, device=device)
+
+    if demands.dim() == 3:
+        demands = demands.squeeze(1) if demands.size(1) == 1 else demands.squeeze(-1)
+
+    for b in range(B):
+        A = edge_logits[b, :M]
+        D = dists[b]
+        dem = demands[b]
+        A_pool = A.max(dim=0).values  # [N, N] pooled-over-vehicles routing signal
+
+        # STEP 1+2: learned-affinity capacity assignment (unchanged vs. _1)
+        affinity = torch.zeros(M, N, device=device)
+        for m in range(M):
+            affinity[m] = depot_weight * A[m, 0] + A[m].max(dim=0).values
+        affinity[:, 0] = -1e9
+
+        vehicle_caps = [capacity] * M
+        clusters = [[] for _ in range(M)]
+        customers = sorted(range(1, N), key=lambda j: float(dem[j]), reverse=True)
+        for j in customers:
+            scores = sorted(((float(affinity[m, j]), m) for m in range(M)), reverse=True)
+            assigned = False
+            for _, m in scores:
+                if dem[j] <= vehicle_caps[m] + 1e-9:
+                    clusters[m].append(j)
+                    vehicle_caps[m] -= float(dem[j])
+                    assigned = True
+                    break
+            if not assigned:
+                best_m = min(range(M), key=lambda m: max(0.0, dem[j] - vehicle_caps[m]))
+                clusters[best_m].append(j)
+                vehicle_caps[best_m] -= float(dem[j])
+
+        # STEP 3: Y_k-faithful ordering (no geometry term)
+        routes = []
+        for m in range(M):
+            nodes = clusters[m]
+            if not nodes:
+                continue
+            order_signal = A_pool if use_pooled_order else A[m]
+            routes.append(_order_route_by_heatmap(order_signal, nodes, beam_width=beam_width))
+
+        # STEP 4: cost (geometry only enters here, for reporting)
+        total_cost = 0.0
+        for r in routes:
+            prev = 0
+            for j in r:
+                total_cost += float(D[prev, j])
+                prev = j
+            total_cost += float(D[prev, 0])
+
+        all_routes.append(routes)
+        all_costs[b] = total_cost
+
+    return all_routes, all_costs, None
+
+
+def _pack_routes(custs, demands, cap=1.0):
+    """First-fit-decreasing pack of customers into capacity-feasible routes (depot implied)."""
+    routes, loads = [], []
+    for c in sorted(custs, key=lambda x: -float(demands[x])):
+        d = float(demands[c])
+        placed = False
+        for i, load in enumerate(loads):
+            if load + d <= cap + 1e-6:
+                routes[i].append(int(c)); loads[i] += d; placed = True; break
+        if not placed:
+            routes.append([int(c)]); loads.append(d)
+    return routes
+
+
+def decode_transition_following(
+        edge_logits,      # [B, M, N, N] raw logits (trained under softmax over dim=-1)
+        dists,            # [B, N, N]
+        demands,          # [B, N]
+        capacity=1.0,
+        max_nr_v_eval=11,
+        depot_weight=None,  # accepted for call-signature compatibility; unused
+):
+    """Decode F-PIN the way it was TRAINED: as a per-vehicle next-node transition model.
+
+    The training loss is log_softmax(logits, dim=-1) -> for each (vehicle m, from-node i),
+    softmax_j(logits[m,i,j]) = P(next = j | m, i). This decoder respects that structure:
+    each vehicle walks a route from the depot, repeatedly stepping to the highest-probability
+    *unvisited, capacity-feasible* successor under that vehicle's transition distribution,
+    returning to the depot when no feasible successor remains. This is the F-PIN analogue of
+    PIM's greedy_path + make_valid, and it is consistent with the training objective (unlike
+    the static-affinity assign decoder, which ignores the learned from->to structure).
+
+    Guarantees: capacity feasibility; all customers served (leftover customers after M routes
+    are packed into extra routes -> counted as fleet violations, never dropped).
+    """
+    device = edge_logits.device
+    B, M_logits, N, _ = edge_logits.shape
+    M = min(M_logits, max_nr_v_eval)
+
+    if demands.dim() == 3:
+        demands = demands.squeeze(1) if demands.size(1) == 1 else demands.squeeze(-1)
+
+    # next-node transition probabilities, matching the training normalization
+    probs = torch.softmax(edge_logits[:, :M], dim=-1)  # [B, M, N, N]
+
+    all_routes = []
+    all_costs = torch.zeros(B, device=device)
+
+    for b in range(B):
+        P = probs[b]      # [M, N, N]
+        D = dists[b]
+        dem = demands[b]
+
+        unvisited = set(range(1, N))
+        routes = []
+        for m in range(M):
+            if not unvisited:
+                break
+            cur = 0
+            load = 0.0
+            route = []
+            while True:
+                feasible = [j for j in unvisited if load + float(dem[j]) <= capacity + 1e-9]
+                if not feasible:
+                    break
+                # follow this vehicle's learned transition from the current node
+                row = P[m, cur]
+                nxt = max(feasible, key=lambda j: float(row[j]))
+                route.append(nxt)
+                load += float(dem[nxt])
+                unvisited.discard(nxt)
+                cur = nxt
+            if route:
+                routes.append(route)
+
+        # repair: never drop customers -> pack leftovers (may exceed M -> counts as violation)
+        if unvisited:
+            routes.extend(_pack_routes(list(unvisited), dem, cap=capacity))
+
+        total_cost = 0.0
+        for r in routes:
+            prev = 0
+            for j in r:
+                total_cost += float(D[prev, j])
+                prev = j
+            total_cost += float(D[prev, 0])
+
+        all_routes.append(routes)
+        all_costs[b] = total_cost
+
+    return all_routes, all_costs, None
+
+
 def decode_vehicle_assignment_v2(
         edge_logits,      # [B, M, N, N]
         dists,            # [B, N, N]

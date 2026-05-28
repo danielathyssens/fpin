@@ -1,0 +1,36 @@
+# @package _global_
+
+# POLICY model: original Thyssens-2022 "old PIM" (softassign perm-invariant) baseline.
+# NOTE: the actual model architecture is built size-aware from
+# models/PIMold/pimold.OLD_MODEL_SPECS (VRP20: layers7/dim256, VRP50: layers9/dim256,
+# VRP100: layers7/dim128). The model_args below exist only to satisfy config
+# interpolations (e.g. env's k=${model_cfg.model_args.max_fleet_length}); they are NOT
+# used to construct the old model.
+model: "PIMold"
+
+model_cfg:
+  model_type: "pim-softassign"
+  model_args:
+    layers: 9
+    depot_in_dim: 4
+    cities_in_dim: 3
+    fleet_in_dim: 4
+    max_fleet_length: 11
+    cities_length: ${graph_size}
+    main_dim: 256
+    avg_pool: False
+    residual: True
+    norm: True
+    ff_hidden_dim: 1024
+    dropout: 0.0
+    self_pool: False
+    embedding_norm: True
+    weighting: True
+    with_loads: False
+    use_attn: True
+  loss_args:
+    simple_loss: False
+    no_perms: False
+    size_average: True
+    with_penalty: False
+    with_loads_loss: False

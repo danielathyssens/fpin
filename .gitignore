@@ -17,3 +17,9 @@ data/
 *.pickle
 *.npz
 *.npy
+
+# large scratch / non-deliverable assets (keep out of the GitHub code deliverable)
+*.zip
+sup-vrp-copy/
+cluster_logs/
+models/PIMold/logs/
