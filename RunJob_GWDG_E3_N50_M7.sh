@@ -18,7 +18,8 @@ mkdir -p "/projects/extern/nhr/nhr_ni/nim00026/dir.project/daniela/cluster_logs"
 source "${HOME}/miniconda3/etc/profile.d/conda.sh"
 conda activate l2o_py310
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-REPO=${REPO:-${SLURM_SUBMIT_DIR:-$PWD}}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPO=${REPO:-${SCRIPT_DIR}}
 cd "${REPO}"
 
 srun python run_fpin.py \
