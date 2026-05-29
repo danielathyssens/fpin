@@ -24,4 +24,4 @@ python -u run_fpin.py \
   train_cfg.n_epochs=1 train_cfg.batch_size=32 train_cfg.epoch_size=256 \
   train_cfg.nr_train_samples=2000 train_cfg.no_tensorboard=true \
   train_cfg.run_name=fpin_e1_SMOKE \
-  fixed_train_set=/fs-home/data/thyssens/ra_data/train_data/cvrp/uniform/targets/converted_npz/
+  fixed_train_set=/fs-home/data/thyssens/ra_data/train_data/cvrp/uniform/targets/fc_hgs_clean/n50_k7/

@@ -30,4 +30,4 @@ python -u run_fpin.py \
   train_cfg.lr=0.0001 \
   train_cfg.checkpoint_epochs=10 \
   train_cfg.run_name=fpin_e1_n100_k10_unf_attn \
-  fixed_train_set=/fs-home/data/thyssens/ra_data/train_data/cvrp/uniform/targets/converted_npz/
+  fixed_train_set=/fs-home/data/thyssens/ra_data/train_data/cvrp/uniform/targets/fc_hgs_clean/n100_k10/

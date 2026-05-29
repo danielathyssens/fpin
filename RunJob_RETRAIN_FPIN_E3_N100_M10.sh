@@ -22,4 +22,4 @@ python -u run_fpin.py \
   model_cfg.model_args.sinkhorn_assignment=True model_cfg.model_args.sinkhorn_iters=3 \
   train_cfg.batch_size=64 train_cfg.n_epochs=100 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=10 \
   train_cfg.run_name=fpin_e3_n100_k10_unf_attn \
-  fixed_train_set=/fs-home/data/thyssens/ra_data/train_data/cvrp/uniform/targets/converted_npz/
+  fixed_train_set=/fs-home/data/thyssens/ra_data/train_data/cvrp/uniform/targets/fc_hgs_clean/n100_k10/
