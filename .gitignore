@@ -8,7 +8,9 @@ env/
 logs/
 outputs/
 results/
-data/
+data/*
+!data/*.py
+data/test_data/
 
 *.pt
 *.pth
