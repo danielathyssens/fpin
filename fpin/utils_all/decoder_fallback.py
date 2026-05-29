@@ -974,14 +974,13 @@ def decode_vehicle_assignment_1(
                     break
 
             if not assigned:
-                # fallback: assign to vehicle with most remaining capacity
-                # best_m = max(range(M), key=lambda m: vehicle_caps[m])
-                best_m = min(
-                    range(M),
-                    key=lambda m: max(0.0, dem[j] - vehicle_caps[m])
-                )
-                clusters[best_m].append(j)
-                vehicle_caps[best_m] -= float(dem[j])
+                # no vehicle has capacity room -> open an EXTRA capacity-feasible route
+                # rather than overloading one (which yields an over-Q tour that OR-Tools
+                # rejects with a hard crash). Extra routes may push the count above M ->
+                # counted as a fleet violation by the evaluator (honest), but every route
+                # stays within capacity.
+                clusters.append([j])
+                vehicle_caps.append(capacity - float(dem[j]))
 
         if len(all_routes) > b:
             continue
@@ -992,7 +991,7 @@ def decode_vehicle_assignment_1(
 
         routes = []
 
-        for m in range(M):
+        for m in range(len(clusters)):
 
             nodes = clusters[m]
 
@@ -1010,7 +1009,7 @@ def decode_vehicle_assignment_1(
 
                 for j in unvisited:
 
-                    score = float(A[m, cur, j]) - dist_penalty * float(D[cur,j])
+                    score = float(A[min(m, M - 1), cur, j]) - dist_penalty * float(D[cur, j])
 
                     if score > best_score:
                         best_score = score

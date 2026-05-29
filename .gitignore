@@ -23,3 +23,29 @@ data/
 sup-vrp-copy/
 cluster_logs/
 models/PIMold/logs/
+
+# paper sources (versioned separately, not part of the code deliverable)
+ECML_From_Permutations_to_Routes/
+ICDM26/
+
+# paper / LaTeX build artifacts (belt-and-suspenders for any stray .tex/.pdf)
+*.pdf
+*.tex
+*.bib
+*.cls
+*.bst
+*.sty
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.nav
+*.snm
+*.vrb
+*.fff
+*.ttt
