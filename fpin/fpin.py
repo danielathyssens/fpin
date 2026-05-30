@@ -61,9 +61,18 @@ def train_model(problem: str,
     warmup_epochs = getattr(opts, "warmup_epochs", 3)
     min_es_epoch = getattr(opts, "min_es_epoch", warmup_epochs + 8)
 
+    # Route to the lazy npz Dataset whenever the train dir contains .npz files
+    # (covers both legacy targets and the new HQ multi-key format that the
+    # in-memory `load_in_get_dataset` path cannot consume).
+    _td = opts.train_dataset
+    _use_npz_dataset = ("npz" in _td) or (
+        isinstance(_td, str)
+        and os.path.isdir(_td)
+        and any(fn.endswith(".npz") for fn in os.listdir(_td))
+    )
     dataset = get_dataset(opts, rp_data_class, env_cfg,
                           fixed_train_targets=rp_train_data,
-                          train_dat_load="load_in_Dataset" if "npz" in opts.train_dataset else "load_in_get_dataset",
+                          train_dat_load="load_in_Dataset" if _use_npz_dataset else "load_in_get_dataset",
                           nr_datapoints=opts.nr_train_samples)
 
     if isinstance(dataset[0], DatasetVrp) or isinstance(dataset[0], DatasetVrp100):

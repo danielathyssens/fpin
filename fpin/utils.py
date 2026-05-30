@@ -90,30 +90,49 @@ def get_dataset(opts,
             all_data = []
             folder = opts.train_dataset
             fleet_size = int(opts.fleet_size)
-            target_graph = "s" + str(opts.graph_size)
+            graph_size_str = str(opts.graph_size)
+            # Accept both legacy ("targets50_seed...") and HQ
+            # ("targets50_m7_seed...size150000_hgs_t3.npz") naming. The old
+            # filter "s<N>" matched neither HQ form ("size150000" does not
+            # contain "s50") nor the FC-CVRP per-cell dirs.
+            name_hint = "targets" + graph_size_str
 
             # Iterate over all .npz files in the folder
             for path in glob.glob(os.path.join(folder, "*.npz")):
                 filename = os.path.basename(path)
-                print('target_graph', target_graph)
+                print('name_hint', name_hint)
                 print('filename', filename)
-                # Only load files matching the current graph size
-                if target_graph in filename:
-                    data = np.load(path, allow_pickle=True)
-                    solutions = data["solutions"]
-                    # print('solutions[0]', solutions[0])
-                    size = len(data["depots"]) if nr_datapoints is None else nr_datapoints
-                    lengths = np.fromiter((len(sol) for sol in solutions[:size]), dtype=np.int32)
-                    print('lengths', lengths)
-                    print('fleet_size', fleet_size)
-                    valid_indices = np.where(lengths <= fleet_size)[0]
-                    print('valid_indices', valid_indices)
-                    print('ret_k = len(valid_indices) / size', len(valid_indices) / size)
-                    all_data.extend((path, i) for i in valid_indices)
+                if name_hint not in filename:
+                    continue
+                data = np.load(path, allow_pickle=True)
+                # Required HQ keys; bail with a clear message otherwise.
+                missing = [k for k in ("depots", "locs", "demands",
+                                       "capacities", "vehicle_limits",
+                                       "solutions") if k not in data.files]
+                if missing:
+                    warnings.warn(
+                        f"Skipping {path}: missing HQ keys {missing}; "
+                        f"available={list(data.files)}"
+                    )
+                    continue
+                solutions = data["solutions"]
+                n_items = len(data["depots"])
+                size = n_items if nr_datapoints is None else min(int(nr_datapoints), n_items)
+                lengths = np.fromiter((len(sol) for sol in solutions[:size]), dtype=np.int32)
+                valid_indices = np.where(lengths <= fleet_size)[0]
+                print('fleet_size', fleet_size)
+                print('valid_indices.shape', valid_indices.shape)
+                print('ret_k = len(valid_indices) / size', len(valid_indices) / max(1, size))
+                all_data.extend((path, i) for i in valid_indices)
             print('len(all_data)', len(all_data))
+            if len(all_data) == 0:
+                raise ValueError(
+                    f"No training instances were loaded from {folder}. "
+                    f"Checked filter='{name_hint}', fleet_size={fleet_size}."
+                )
             print('all_data[0]', all_data[0])
-            print('all_data[4]', all_data[4])
-            # print('all_data[100000]', all_data[100000])
+            if len(all_data) > 4:
+                print('all_data[4]', all_data[4])
 
         else:
             rp_solution_data = fixed_train_targets
