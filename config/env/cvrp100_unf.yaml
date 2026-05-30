@@ -1,0 +1,36 @@
+# @package _global_
+# problem args
+
+problem: "cvrp"
+graph_size: 100
+coords_dist: 'uniform'
+weights_dist: 'random_int'
+out_name: ${problem}_${graph_size}_${coords_dist}
+data_file_path: # data/test_data/cvrp/uniform/cvrp100/fc-cvrp_seed213298_size130.pt
+# data/test_data/cvrp/uniform/cvrp60/fc-cvrp_seed213298_size128.pt
+normalize_data: True
+checkpoint_load_path: # models/PIM/PIM/logs/ckpts/uniform_60/best-epoch-100-n60_k7_unf_2.pt
+# models/PIM/PIM/logs/ckpts/uniform_60/best-epoch-100.pt
+# models/PIM/PIM/logs/ckpts/best-epoch-100-orderL.pt
+fixed_train_set: data/train_data/cvrp/${coords_dist}/targets/converted_npz/
+# data/train_data/cvrp/${coords_dist}/targets/
+
+# RP Env cfg
+env_kwargs:
+  generator_args:
+    coords_sampling_dist: ${coords_dist}
+    weights_sampling_dist: ${weights_dist}
+    normalize_demands: True  # if None or False - demands will remain un-normalized (not between 0-1)
+    single_large_instance: # data/train_data/${problem}_10000/${coords_dist}/single_large_instance.pt
+    add_base_node_ids: False
+  sampling_args:
+    sample_size: 128
+    graph_size: ${graph_size}
+    base_nodes_size:
+    subsample: False
+    k: ${model_cfg.model_args.max_fleet_length}
+    cap: 50
+    max_cap_factor: # factor of additional capacity w.r.t. a norm capacity of 1.0 per vehicle
+    n_depots: 1 #number of depots (default = 1)
+
+decode_v_run_opt: assign_plain
