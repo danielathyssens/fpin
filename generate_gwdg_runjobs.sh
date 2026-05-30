@@ -57,8 +57,11 @@ mkdir -p "${PROJ}/cluster_logs"
 source "\${HOME}/miniconda3/etc/profile.d/conda.sh"
 conda activate l2o_py310
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-SCRIPT_DIR=\$(cd -- "\$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)
-REPO=\${REPO:-\${SCRIPT_DIR}}
+# NOTE: under sbatch the script is copied to /var/spool/slurmd/job<id>/, so
+# dirname \${BASH_SOURCE[0]} resolves to the spool dir (NOT the repo) and srun
+# then cannot find run_fpin.py. Use SLURM_SUBMIT_DIR (the directory sbatch was
+# invoked from) with a hardcoded fallback, never BASH_SOURCE.
+REPO=\${REPO:-\${SLURM_SUBMIT_DIR:-\$HOME/repos/fpin}}
 cd "\${REPO}"
 
 srun python run_fpin.py \\
