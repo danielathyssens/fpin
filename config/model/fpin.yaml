@@ -32,6 +32,7 @@ model_cfg:
     vehicle_cond_edge_head: True  # E1: vehicle-conditioned edge MLP head (set False to load legacy bilinear-head checkpoints)
     sinkhorn_assignment: False    # E3: Sinkhorn customer->vehicle assignment bias (retrain-2). Off => retrain-1 unaffected
     sinkhorn_iters: 3
+    joint_customer_norm: False    # F-PIN-S: per-customer joint (vehicle, next-node) softmax. Mirrors PIM softassign structural prior in a single softmax step. Loss must match (loss_cfg.joint_customer_norm).
     # n_soft_layers:
   loss_args:
     simple_loss: False

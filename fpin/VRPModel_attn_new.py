@@ -14,7 +14,8 @@ class VRP_Net(nn.Module):
                  self_pool, embedding_norm, weighting, with_loads,
                  use_attn, regret_batches, seed_mode="fast", nr_seeds=8, seed_sigma=0.5,
                  add_demand_weights=False, vehicle_cond_edge_head=True,
-                 sinkhorn_assignment=False, sinkhorn_iters=3):
+                 sinkhorn_assignment=False, sinkhorn_iters=3,
+                 joint_customer_norm=False):
         super().__init__()
 
         ##### ENCODER #####
@@ -107,6 +108,15 @@ class VRP_Net(nn.Module):
             self.assign_q = nn.Linear(main_dim, main_dim)
             self.assign_k = nn.Linear(main_dim, main_dim)
             self.assign_bias_weight = nn.Parameter(torch.ones(1))
+
+        # F-PIN-S: per-customer JOINT (vehicle, next-node) softmax replaces the
+        # per-vehicle row softmax for customer rows. Matches PIM's softassign
+        # structural prior (each customer is left by exactly one (vehicle, j))
+        # in ONE softmax step instead of iterative Sinkhorn -> well-conditioned
+        # gradients (single LogSumExp), no doubly-stochastic-fixed-point pathology
+        # (cf. Mena et al. 2018 on Gumbel-Sinkhorn gradients; Cuturi 2013 OT).
+        # Depot row unchanged (per-vehicle softmax over j).
+        self.joint_customer_norm = joint_customer_norm
 
         # LOAD
         self.with_loads = with_loads
@@ -235,14 +245,30 @@ class VRP_Net(nn.Module):
             self._eye_cache_n = n
         edge_logits = edge_logits.masked_fill(self._eye_cache[None, None, :, :], -30.0)
 
-        # Probabilities for decoding: MUST match the training normalization, which is
-        # log_softmax(logits, dim=-1) (per (vehicle, from-node) distribution over the next
-        # node). The previous sigmoid(edge_logits) treated edges as independent and was
-        # inconsistent with training -> incoherent heatmap for greedy decoding. Use the
-        # next-node softmax so decoders read the model the way it was trained.
-        edge_probs_for_decode = torch.softmax(edge_logits, dim=-1)  # [B, M, N, N] = P(j | m, i)
-
-        return edge_logits, edge_probs_for_decode
+        # Normalization step.
+        # Default (F-PIN-original): per-(vehicle, source) softmax over destination j.
+        # joint_customer_norm = True (F-PIN-S): customer rows use a per-customer
+        # joint softmax over (m, j). Depot row keeps per-vehicle softmax over j.
+        # The loss (-log_probs * target) only consumes the chosen successor's
+        # log-probability, so both schemes plug into the existing VRPLoss
+        # without change — the target Y* still has exactly one 1 per active
+        # (m, i, :) row, which under the joint scheme is one 1 per active
+        # customer-row across the flattened (m, j) axis.
+        if self.joint_customer_norm:
+            depot_log = F.log_softmax(edge_logits[:, :, 0:1, :], dim=-1)        # [B,M,1,n]
+            cust = edge_logits[:, :, 1:, :]                                     # [B,M,n-1,n]
+            B_, M_, Nm1, N_ = cust.shape
+            cust = cust.permute(0, 2, 1, 3).reshape(B_, Nm1, M_ * N_)           # [B,n-1,M*n]
+            cust = F.log_softmax(cust, dim=-1)
+            cust = cust.reshape(B_, Nm1, M_, N_).permute(0, 2, 1, 3)             # [B,M,n-1,n]
+            log_probs = torch.cat([depot_log, cust], dim=2)
+            edge_probs_for_decode = log_probs.exp()
+            # Loss path consumes probs via .log(); pass back probs that, when
+            # .log()'d, recover log_probs.
+            return log_probs, edge_probs_for_decode
+        else:
+            edge_probs_for_decode = torch.softmax(edge_logits, dim=-1)
+            return edge_logits, edge_probs_for_decode
 
 
 class DistancesCapaToWeights(nn.Module):
