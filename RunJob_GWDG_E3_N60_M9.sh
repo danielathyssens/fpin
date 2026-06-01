@@ -30,19 +30,24 @@ mkdir -p "${FPIN_OUTPUT_ROOT}"
 REPO=${REPO:-${SLURM_SUBMIT_DIR:-$HOME/repos/fpin}}
 cd "${REPO}"
 
-# Auto-resume: if a prior run for this (N=60, M=9) cell left a usable
-# checkpoint, pick the latest by mtime and continue from it. Otherwise
-# launch a fresh training run.
-RESUME_GLOB="${FPIN_OUTPUT_ROOT}/cvrp_60_uniform/train/fpin/*/checkpoints/best.pt"
+# Auto-resume: scope the resume glob to THIS cell's run_name so we never
+# pick up a ckpt from a different (N, M) by accident. Latest-mtime wins.
+RUN_NAME="fpin_e3_n60_k9_unf_attn"
+RESUME_GLOB="${FPIN_OUTPUT_ROOT}/cvrp_60_uniform/train/fpin/${RUN_NAME}_*/checkpoints/best.pt"
 LATEST_CKPT=$(ls -t $RESUME_GLOB 2>/dev/null | head -1 || true)
+
+# Force a unique hydra.run.dir per cell so simultaneous starts at the same
+# second can't share a directory (the bug behind the May 30 N50/N60 collisions).
+RUN_DIR="${FPIN_OUTPUT_ROOT}/cvrp_60_uniform/train/fpin/${RUN_NAME}_$(date +%Y-%m-%d_%H-%M-%S)"
 
 COMMON_ARGS=( \
   env=cvrp60_unf model=fpin hydra.job.chdir=true \
+  "hydra.run.dir=${RUN_DIR}" \
   model_cfg.model_args.max_fleet_length=9 model_cfg.model_args.fleet_in_dim=260 \
   model_cfg.model_args.use_attn=True model_cfg.model_args.vehicle_cond_edge_head=True \
   model_cfg.model_args.sinkhorn_assignment=True model_cfg.model_args.sinkhorn_iters=3 \
   train_cfg.batch_size=64 train_cfg.n_epochs=100 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=10 \
-  train_cfg.run_name=fpin_e3_n60_k9_unf_attn \
+  "train_cfg.run_name=${RUN_NAME}" \
   fixed_train_set=/projects/extern/nhr/nhr_ni/nim00026/dir.project/daniela/data/train_data/cvrp/uniform/targets/converted_npz/ \
 )
 
