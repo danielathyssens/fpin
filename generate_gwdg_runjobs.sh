@@ -96,7 +96,7 @@ COMMON_ARGS=( \\
   model_cfg.model_args.max_fleet_length=${m} model_cfg.model_args.fleet_in_dim=260 \\
   model_cfg.model_args.use_attn=True model_cfg.model_args.vehicle_cond_edge_head=True \\
   model_cfg.model_args.sinkhorn_assignment=True model_cfg.model_args.sinkhorn_iters=3 \\
-  train_cfg.batch_size=${bs} train_cfg.n_epochs=100 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=10 \\
+  train_cfg.batch_size=${bs} train_cfg.n_epochs=200 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=10 \\
   "train_cfg.run_name=\${RUN_NAME}" \\
   fixed_train_set=${targets}/ \\
 )
