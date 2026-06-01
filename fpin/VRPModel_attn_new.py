@@ -1,6 +1,7 @@
 ###The classes and functions defined in this file originate from the source code in Kaempfer & Wolff et al. (2018) and were amended for the VRP###
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from fpin.nets.perm_inv_net import PermInvNet
 from fpin.utils_all.net_funcs import PairwiseLinear
 from fpin.nets.encoder import GraphEncoder
