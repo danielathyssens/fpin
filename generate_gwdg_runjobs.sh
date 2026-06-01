@@ -29,12 +29,23 @@ target_dir_for() {
   esac
 }
 
+# Per-cell batch size override. N=100,M=10 OOMs at batch=64 on A100-40GB
+# (dense loss expansion in fpin/VRP_Loss1.py:159).
+batch_for() {
+  case "${1}_${2}" in
+    100_10) printf '32' ;;
+    *)      printf '64' ;;
+  esac
+}
+
 gen() {
   local n=$1
   local m=$2
   local name="GWDG_E3_N${n}_M${m}"
   local targets
   targets=$(target_dir_for "$n" "$m")
+  local bs
+  bs=$(batch_for "$n" "$m")
 
   cat > "RunJob_${name}.sh" <<EOF
 #!/bin/bash
@@ -47,6 +58,7 @@ gen() {
 #SBATCH --ntasks-per-node=1
 #SBATCH -G A100:1
 #SBATCH --time=48:00:00
+#SBATCH --requeue
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=thyssens@ismll.de
 #SBATCH --output=${PROJ}/cluster_logs/${name}_%j.log
@@ -57,6 +69,10 @@ mkdir -p "${PROJ}/cluster_logs"
 source "\${HOME}/miniconda3/etc/profile.d/conda.sh"
 conda activate l2o_py310
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# Write Hydra outputs (checkpoints + logs) to project storage, not \$HOME.
+# config/config.yaml resolves hydra.run.dir via \${oc.env:FPIN_OUTPUT_ROOT,outputs}.
+export FPIN_OUTPUT_ROOT="${PROJ}/fpin_outputs"
+mkdir -p "\${FPIN_OUTPUT_ROOT}"
 # NOTE: under sbatch the script is copied to /var/spool/slurmd/job<id>/, so
 # dirname \${BASH_SOURCE[0]} resolves to the spool dir (NOT the repo) and srun
 # then cannot find run_fpin.py. Use SLURM_SUBMIT_DIR (the directory sbatch was
@@ -64,14 +80,34 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 REPO=\${REPO:-\${SLURM_SUBMIT_DIR:-\$HOME/repos/fpin}}
 cd "\${REPO}"
 
-srun python run_fpin.py \\
-  meta=train_base env=cvrp${n}_unf model=fpin hydra.job.chdir=true \\
+# Auto-resume: if a prior run for this (N=${n}, M=${m}) cell left a usable
+# checkpoint, pick the latest by mtime and continue from it. Otherwise
+# launch a fresh training run.
+RESUME_GLOB="\${FPIN_OUTPUT_ROOT}/cvrp_${n}_uniform/train/fpin/*/checkpoints/best.pt"
+LATEST_CKPT=\$(ls -t \$RESUME_GLOB 2>/dev/null | head -1 || true)
+
+COMMON_ARGS=( \\
+  env=cvrp${n}_unf model=fpin hydra.job.chdir=true \\
   model_cfg.model_args.max_fleet_length=${m} model_cfg.model_args.fleet_in_dim=260 \\
   model_cfg.model_args.use_attn=True model_cfg.model_args.vehicle_cond_edge_head=True \\
   model_cfg.model_args.sinkhorn_assignment=True model_cfg.model_args.sinkhorn_iters=3 \\
-  train_cfg.batch_size=64 train_cfg.n_epochs=100 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=10 \\
+  train_cfg.batch_size=${bs} train_cfg.n_epochs=100 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=10 \\
   train_cfg.run_name=fpin_e3_n${n}_k${m}_unf_attn \\
-  fixed_train_set=${targets}/
+  fixed_train_set=${targets}/ \\
+)
+
+if [ -n "\${LATEST_CKPT:-}" ] && [ -f "\${LATEST_CKPT}" ]; then
+  echo "[RESUME] Found prior checkpoint: \${LATEST_CKPT}"
+  srun python run_fpin.py \\
+    meta=resume \\
+    test_cfg.checkpoint_load_path="\${LATEST_CKPT}" \\
+    "\${COMMON_ARGS[@]}"
+else
+  echo "[FRESH] No prior checkpoint under \${RESUME_GLOB}; training from scratch"
+  srun python run_fpin.py \\
+    meta=train_base \\
+    "\${COMMON_ARGS[@]}"
+fi
 EOF
 
   echo "wrote RunJob_${name}.sh"

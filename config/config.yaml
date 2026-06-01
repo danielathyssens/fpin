@@ -13,9 +13,12 @@ defaults:
 
 hydra:
   # standard output path
-  # change with command line argument: hydra.run.dir=XXX
+  # Prefix is taken from $FPIN_OUTPUT_ROOT if set, else "outputs" (local default).
+  # On GWDG, RunJobs export FPIN_OUTPUT_ROOT=$PROJ/fpin_outputs so checkpoints land
+  # on the project filesystem instead of $HOME (60 GiB soft quota). Also overridable
+  # at the CLI: hydra.run.dir=XXX
   run:
-    dir: outputs/${out_name}/${run_type}/${model}/${now:%Y-%m-%d_%H-%M-%S}
+    dir: ${oc.env:FPIN_OUTPUT_ROOT,outputs}/${out_name}/${run_type}/${model}/${now:%Y-%m-%d_%H-%M-%S}
   job:
     chdir: True
   # version_base: "1.2"

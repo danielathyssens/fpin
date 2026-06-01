@@ -8,6 +8,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -G A100:1
 #SBATCH --time=48:00:00
+#SBATCH --requeue
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=thyssens@ismll.de
 #SBATCH --output=/projects/extern/nhr/nhr_ni/nim00026/dir.project/daniela/cluster_logs/GWDG_E3_N20_M3_%j.log
@@ -18,15 +19,42 @@ mkdir -p "/projects/extern/nhr/nhr_ni/nim00026/dir.project/daniela/cluster_logs"
 source "${HOME}/miniconda3/etc/profile.d/conda.sh"
 conda activate l2o_py310
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-REPO=${REPO:-${SCRIPT_DIR}}
+# Write Hydra outputs (checkpoints + logs) to project storage, not $HOME.
+# config/config.yaml resolves hydra.run.dir via ${oc.env:FPIN_OUTPUT_ROOT,outputs}.
+export FPIN_OUTPUT_ROOT="/projects/extern/nhr/nhr_ni/nim00026/dir.project/daniela/fpin_outputs"
+mkdir -p "${FPIN_OUTPUT_ROOT}"
+# NOTE: under sbatch the script is copied to /var/spool/slurmd/job<id>/, so
+# dirname ${BASH_SOURCE[0]} resolves to the spool dir (NOT the repo) and srun
+# then cannot find run_fpin.py. Use SLURM_SUBMIT_DIR (the directory sbatch was
+# invoked from) with a hardcoded fallback, never BASH_SOURCE.
+REPO=${REPO:-${SLURM_SUBMIT_DIR:-$HOME/repos/fpin}}
 cd "${REPO}"
 
-srun python run_fpin.py \
-  meta=train_base env=cvrp20_unf model=fpin hydra.job.chdir=true \
+# Auto-resume: if a prior run for this (N=20, M=3) cell left a usable
+# checkpoint, pick the latest by mtime and continue from it. Otherwise
+# launch a fresh training run.
+RESUME_GLOB="${FPIN_OUTPUT_ROOT}/cvrp_20_uniform/train/fpin/*/checkpoints/best.pt"
+LATEST_CKPT=$(ls -t $RESUME_GLOB 2>/dev/null | head -1 || true)
+
+COMMON_ARGS=( \
+  env=cvrp20_unf model=fpin hydra.job.chdir=true \
   model_cfg.model_args.max_fleet_length=3 model_cfg.model_args.fleet_in_dim=260 \
   model_cfg.model_args.use_attn=True model_cfg.model_args.vehicle_cond_edge_head=True \
   model_cfg.model_args.sinkhorn_assignment=True model_cfg.model_args.sinkhorn_iters=3 \
   train_cfg.batch_size=64 train_cfg.n_epochs=100 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=10 \
   train_cfg.run_name=fpin_e3_n20_k3_unf_attn \
-  fixed_train_set=/projects/extern/nhr/nhr_ni/nim00026/dir.project/daniela/data/train_data/cvrp/uniform/targets/fc_hgs_clean/n20_k3/
+  fixed_train_set=/projects/extern/nhr/nhr_ni/nim00026/dir.project/daniela/data/train_data/cvrp/uniform/targets/fc_hgs_clean/n20_k3/ \
+)
+
+if [ -n "${LATEST_CKPT:-}" ] && [ -f "${LATEST_CKPT}" ]; then
+  echo "[RESUME] Found prior checkpoint: ${LATEST_CKPT}"
+  srun python run_fpin.py \
+    meta=resume \
+    test_cfg.checkpoint_load_path="${LATEST_CKPT}" \
+    "${COMMON_ARGS[@]}"
+else
+  echo "[FRESH] No prior checkpoint under ${RESUME_GLOB}; training from scratch"
+  srun python run_fpin.py \
+    meta=train_base \
+    "${COMMON_ARGS[@]}"
+fi
