@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import itertools
 from itertools import tee
 import math
-from fpin.utils_all.basic_funcs import to_variable, zeros, sparse_dense_mul_loss, sparse_stack, safe_gather, sparse_transpose_dim2_dim3
+from fpin.utils_all.basic_funcs import to_variable, zeros, sparse_dense_mul_loss, sparse_dense_mul_loss_4d, sparse_stack, safe_gather, sparse_transpose_dim2_dim3
 from fpin.utils_all.loss_utils import succ_labels_from_sparse, hungarian_match_from_membership, permute_targets_sparse_by_perm, pred_membership_from_logits, tgt_membership_from_sparse, pool_logits_to_L
 
 class VRPLoss(nn.Module):
@@ -137,19 +137,23 @@ class VRPLoss(nn.Module):
                 all_target = torch.stack([stacked_target] * m, dim=1)
                 # print('all_target.is_sparse', all_target.is_sparse)
                 # Float(batch x from_groups x 2 x to_groups x from_city x to_city):
-            log_probs = log_probs.unsqueeze(2).unsqueeze(3).expand_as(all_target)
-            log_probs = log_probs.contiguous()
-            # print('log_probs.is_sparse', log_probs.is_sparse)
+            # NOTE: do NOT expand log_probs to 6-D here. Earlier code did
+            #   log_probs = log_probs.unsqueeze(2).unsqueeze(3).expand_as(all_target).contiguous()
+            # which materialized a ~B*M^2*2*N^2 dense tensor (e.g. 260 MB at
+            # M=10/N=101/B=32) per batch -- this caused the 12x slowdown in
+            # the N100_M10 cell (loss=1.7s vs fwd=0.05s in run 14035998). The
+            # broadcast values are identical along the (dir, to_g) singleton
+            # axes, so sparse_dense_mul_loss_4d gathers from the 4-D tensor
+            # directly. See basic_funcs.sparse_dense_mul_loss_4d for the
+            # equivalence proof.
 
             if self.with_penalty:
                 loads_ = loads.unsqueeze(2).expand(b, m, m)
             if self.with_load_loss and not self.with_penalty:
                 loads_ = loads.unsqueeze(2).expand(b, m, m)
-            
+
             # pre-calculate all losses across directions and vehicle combinations
-            # print('all_target.size()', all_target.size())
-            # print('log_probs.size()', log_probs.size())
-            losses = sparse_dense_mul_loss(all_target, -log_probs)
+            losses = sparse_dense_mul_loss_4d(all_target, -log_probs)
             # print('losses.size()', losses.size())
             # print('losses.device', losses.device)
             # SIMPLE permutation invariant loss (NO WEIGHTS ON STARTS)

@@ -79,6 +79,36 @@ def sparse_dense_mul(s, d):
 #     # return torch.sparse.FloatTensor(i, v * dv, s.size())
 #     return torch.sparse_coo_tensor(i, v * dv, s.size(), dtype=torch.float) # , device=
 
+
+def sparse_dense_mul_loss_4d(s, d4):
+    """Memory-efficient sparse * dense multiply for the perm-invariant loss.
+
+    The original `sparse_dense_mul_loss(s, d)` requires `d` to be a fully
+    expanded 6-D tensor [B, M, 2, M, N, N] matching the sparse target's shape.
+    That expansion (`log_probs.unsqueeze(2).unsqueeze(3).expand_as(all_target)
+    .contiguous()`) materializes ~B*M^2*2*N^2 elements per batch -- ~260 MB
+    at M=10 / N=101 / B=32 -- and was the root cause of the 12x epoch-time
+    inflation at N100_M10 (forward 0.05s vs loss 1.7s per batch, per the run
+    log timestamps).
+
+    Here, `d4` stays as the *unexpanded* 4-D [B, M, N, N] log_probs. The
+    expansion is purely along singleton (dir, to_g) axes 2 and 3, so
+    log_probs[b, from_g, dir, to_g, i, j] = log_probs_4d[b, from_g, i, j]
+    regardless of dir or to_g. We gather directly using (B, from_g, i, j)
+    sparse indices, skipping the 260 MB allocation. Mathematically identical
+    to the 6-D path; ~20x less peak memory; smaller backward graph.
+    """
+    i = s._indices()
+    v = s._values()
+    assert i.shape[0] == 6, f"Expected 6D sparse indices, got {i.shape[0]}D"
+    assert d4.dim() == 4, f"Expected 4D dense, got {d4.dim()}D"
+    d4 = d4.to(v.device).contiguous()
+    # Sparse index layout: (B, from_g, dir, to_g, n_from, n_to)
+    # Gather d4 at (B, from_g, n_from, n_to); dir / to_g are broadcast axes.
+    dv = d4[i[0, :], i[1, :], i[4, :], i[5, :]]
+    return torch.sparse_coo_tensor(i, v * dv, s.size(), dtype=torch.float)
+
+
 def sparse_dense_mul_loss(s, d):
     # print('d.device', d.device)
     # print('s.device', s.device)
