@@ -366,6 +366,14 @@ def train_one_epoch(generator, opts, graph_size,
 
             loss = loss_f(vrp_logits, loads, targets.to(device_for_loss), target_loads.to(device_for_loss))
 
+            # F-PIN-C auxiliary: encoder-level fleet-count supervision.
+            # No-op when vcount_aux_head=False (returns None).
+            aux_w = float(getattr(opts, "vcount_aux_w", 0.0) or 0.0)
+            if aux_w > 0.0:
+                aux = model.get_aux_loss(targets.to(device_for_loss)) if hasattr(model, "get_aux_loss") else None
+                if aux is not None:
+                    loss = loss + aux_w * aux
+
         # ---------------- TIMINGS: loss end, backward start (added) ----------------
         _ema_update("loss", time.time() - t_loss0)
         t_bwd0 = time.time()

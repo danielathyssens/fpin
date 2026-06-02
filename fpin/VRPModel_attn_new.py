@@ -154,6 +154,22 @@ class VRP_Net(nn.Module):
         # HELPERS
         self.register_buffer("_eye_cache", torch.empty(0), persistent=False)
         self._eye_cache_n = None
+        self._vcount_pred = None    # set by forward() when vcount_aux_head=True
+
+    def get_aux_loss(self, target):
+        """F-PIN-C: auxiliary MSE loss on predicted vs target #vehicles used.
+        Target #vehicles = count of vehicles with non-empty route in Y*.
+        Returns None when vcount_aux_head is disabled OR no forward has run."""
+        if not self.vcount_aux_head or self._vcount_pred is None:
+            return None
+        # target [B, M, n, n]; active vehicles = m where target[b, m, :, :].sum() > 0
+        if target.is_sparse:
+            t_dense = target.to_dense()
+        else:
+            t_dense = target
+        with torch.no_grad():
+            target_count = (t_dense.sum(dim=(-2, -1)) > 0).sum(dim=-1).float()
+        return torch.nn.functional.mse_loss(self._vcount_pred, target_count)
 
 
     def forward(self, depot, customers, fleet, demands, dists, sample=False, training=True):
@@ -195,6 +211,14 @@ class VRP_Net(nn.Module):
         # Split back into sets
         depot_embedding = graph_emb[:, :1, :]  # [B, 1, D]
         customers_embedding = graph_emb[:, 1:, :]  # [B, num_customers, D]
+
+        # F-PIN-C: auxiliary fleet-count prediction from pooled customer feature.
+        # Stored as attribute; loss is computed via model.get_aux_loss(target).
+        if self.vcount_aux_head:
+            global_feat = customers_embedding.mean(dim=1)             # [B, D]
+            self._vcount_pred = self.vcount_mlp(global_feat).squeeze(-1)  # [B]
+        else:
+            self._vcount_pred = None
 
         ### PermInvPoolNet ###
         if weights_dists is None:
