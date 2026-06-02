@@ -130,3 +130,4 @@ loss_cfg:
   pen_w: 0.2
   load_w: 0.3
   joint_customer_norm: ${model_cfg.model_args.joint_customer_norm}
+  softassign_head: ${model_cfg.model_args.softassign_head}

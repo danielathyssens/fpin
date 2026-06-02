@@ -33,6 +33,8 @@ model_cfg:
     sinkhorn_assignment: False    # E3: Sinkhorn customer->vehicle assignment bias (retrain-2). Off => retrain-1 unaffected
     sinkhorn_iters: 3
     joint_customer_norm: False    # F-PIN-S: per-customer joint (vehicle, next-node) softmax. Mirrors PIM softassign structural prior in a single softmax step. Loss must match (loss_cfg.joint_customer_norm).
+    softassign_head: False        # F-PIN-A: full PIM 2022 MTSPSoftassign at the head (iterative depot per-vehicle + customer joint + transpose). Out-flow AND in-flow constraints. Loss must match (loss_cfg.softassign_head).
+    softassign_layers: 3
     # n_soft_layers:
   loss_args:
     simple_loss: False

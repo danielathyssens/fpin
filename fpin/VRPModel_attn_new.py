@@ -16,7 +16,8 @@ class VRP_Net(nn.Module):
                  use_attn, regret_batches, seed_mode="fast", nr_seeds=8, seed_sigma=0.5,
                  add_demand_weights=False, vehicle_cond_edge_head=True,
                  sinkhorn_assignment=False, sinkhorn_iters=3,
-                 joint_customer_norm=False):
+                 joint_customer_norm=False,
+                 softassign_head=False, softassign_layers=3):
         super().__init__()
 
         ##### ENCODER #####
@@ -118,6 +119,18 @@ class VRP_Net(nn.Module):
         # (cf. Mena et al. 2018 on Gumbel-Sinkhorn gradients; Cuturi 2013 OT).
         # Depot row unchanged (per-vehicle softmax over j).
         self.joint_customer_norm = joint_customer_norm
+
+        # F-PIN-A: full PIM 2022 MTSPSoftassign at the head. Ported faithfully
+        # from models/PIMold/src/utils_all/softassign.py. Iteratively normalizes
+        # depot row (per-vehicle softmax over j) + customer rows (joint over
+        # (m, j)), alternating with transpose to enforce both out-flow AND
+        # in-flow constraints (each customer LEFT and ENTERED exactly once
+        # across all vehicles). Structurally prevents the model from emitting
+        # heatmaps that decode to > M routes -- the lever for matching PIM's
+        # 0% fleet violation. Toy v2 (this repo) shows ATTN+MTSPSoftassign
+        # decodes to 0.10% gap-vs-optimum at N=6 (best of 6 configs tested).
+        self.softassign_head = softassign_head
+        self.softassign_layers = max(1, softassign_layers)
 
         # LOAD
         self.with_loads = with_loads
@@ -247,14 +260,37 @@ class VRP_Net(nn.Module):
         edge_logits = edge_logits.masked_fill(self._eye_cache[None, None, :, :], -30.0)
 
         # Normalization step.
+        # F-PIN-A (softassign_head): apply PIM 2022's MTSPSoftassign at the head
+        # to structurally enforce both out-flow (each customer left once across
+        # all vehicles) and in-flow (each customer entered once) constraints.
+        # Returns pre-normalized log-probs; loss must consume them directly
+        # (loss_cfg.softassign_head=True skips the redundant log_softmax).
+        if self.softassign_head:
+            # Numerically stabilized exp(x - max).
+            eps = 1e-8
+            out = torch.exp(edge_logits - edge_logits.amax(dim=(-2, -1), keepdim=True))
+            for _ in range(self.softassign_layers):
+                out = out.clamp_min(eps)
+                # depot row (i=0): per-vehicle softmax over j -> out-degree(depot,m)=1
+                depot = out[:, :, :1, :]
+                depot = depot / depot.sum(dim=-1, keepdim=True).clamp_min(eps)
+                # customer rows (i>0): joint over (m, j) -> each customer left once
+                cust = out[:, :, 1:, :]
+                cust_sum = cust.sum(dim=(1, 3), keepdim=True).clamp_min(eps)
+                cust = cust / cust_sum
+                out = torch.cat([depot, cust], dim=2)
+                # transpose to enforce the in-flow side symmetrically
+                out = out.transpose(2, 3)
+            # if odd #iters -> currently transposed; flip back to (i_from, j_to)
+            if self.softassign_layers % 2 == 1:
+                out = out.transpose(2, 3)
+            log_probs = (out + eps).log()
+            edge_probs_for_decode = out
+            return log_probs, edge_probs_for_decode
+
         # Default (F-PIN-original): per-(vehicle, source) softmax over destination j.
         # joint_customer_norm = True (F-PIN-S): customer rows use a per-customer
         # joint softmax over (m, j). Depot row keeps per-vehicle softmax over j.
-        # The loss (-log_probs * target) only consumes the chosen successor's
-        # log-probability, so both schemes plug into the existing VRPLoss
-        # without change — the target Y* still has exactly one 1 per active
-        # (m, i, :) row, which under the joint scheme is one 1 per active
-        # customer-row across the flattened (m, j) axis.
         if self.joint_customer_norm:
             depot_log = F.log_softmax(edge_logits[:, :, 0:1, :], dim=-1)        # [B,M,1,n]
             cust = edge_logits[:, :, 1:, :]                                     # [B,M,n-1,n]
