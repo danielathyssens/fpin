@@ -17,7 +17,8 @@ class VRP_Net(nn.Module):
                  add_demand_weights=False, vehicle_cond_edge_head=True,
                  sinkhorn_assignment=False, sinkhorn_iters=3,
                  joint_customer_norm=False,
-                 softassign_head=False, softassign_layers=3):
+                 softassign_head=False, softassign_layers=3,
+                 vcount_aux_head=False):
         super().__init__()
 
         ##### ENCODER #####
@@ -131,6 +132,21 @@ class VRP_Net(nn.Module):
         # decodes to 0.10% gap-vs-optimum at N=6 (best of 6 configs tested).
         self.softassign_head = softassign_head
         self.softassign_layers = max(1, softassign_layers)
+
+        # F-PIN-C: auxiliary "vehicle count" prediction head. A tiny MLP that
+        # consumes the (mean) pooled global feature and predicts the optimal
+        # number of vehicles used by Y*. Loss-side: MSE against target count.
+        # Forces the encoder to be fleet-aware at the representation level,
+        # complementing F-PIN-A's structural-at-output prior. Returned as the
+        # 3rd output of forward() when enabled; backwards-compatible (None when
+        # disabled, ignored by the existing loss path).
+        self.vcount_aux_head = vcount_aux_head
+        if vcount_aux_head:
+            self.vcount_mlp = nn.Sequential(
+                nn.Linear(main_dim, main_dim // 2),
+                nn.ReLU(),
+                nn.Linear(main_dim // 2, 1),
+            )
 
         # LOAD
         self.with_loads = with_loads
