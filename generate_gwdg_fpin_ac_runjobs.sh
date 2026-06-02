@@ -16,7 +16,7 @@ target_dir_for() {
 }
 batch_for() { case "${1}_${2}" in 100_10) printf '32' ;; *) printf '64' ;; esac; }
 gen() {
-  local n=$1 m=$2 name="GWDG_FPIN_AC_N${n}_M${m}"
+  local n=$1; local m=$2; local name="GWDG_FPIN_AC_N${n}_M${m}"
   local targets bs
   targets=$(target_dir_for "$n" "$m"); bs=$(batch_for "$n" "$m")
   cat > "RunJob_${name}.sh" <<RJ
