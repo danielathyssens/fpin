@@ -43,6 +43,8 @@ COMMON=( env=cvrp${n}_unf model=fpin hydra.job.chdir=true "hydra.run.dir=\${RUN_
   model_cfg.model_args.sinkhorn_assignment=False model_cfg.model_args.joint_customer_norm=False \\
   model_cfg.model_args.softassign_head=True model_cfg.model_args.softassign_layers=3 \\
   model_cfg.model_args.vcount_aux_head=True +train_cfg.vcount_aux_w=0.1 \\
+  model_cfg.model_args.add_demand_weights=True \\
+  loss_cfg.start_weight=0.2 loss_cfg.pen_w=0.1 loss_cfg.load_w=0.2 \\
   train_cfg.batch_size=${bs} train_cfg.n_epochs=200 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=50 \\
   "train_cfg.run_name=\${RUN_NAME}" fixed_train_set=${targets}/ )
 if [ -n "\${LATEST_CKPT:-}" ] && [ -f "\${LATEST_CKPT}" ]; then

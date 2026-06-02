@@ -21,6 +21,8 @@ COMMON=( env=cvrp20_unf model=fpin hydra.job.chdir=true "hydra.run.dir=${RUN_DIR
   model_cfg.model_args.sinkhorn_assignment=False model_cfg.model_args.joint_customer_norm=False \
   model_cfg.model_args.softassign_head=True model_cfg.model_args.softassign_layers=3 \
   model_cfg.model_args.vcount_aux_head=True +train_cfg.vcount_aux_w=0.1 \
+  model_cfg.model_args.add_demand_weights=True \
+  loss_cfg.start_weight=0.2 loss_cfg.pen_w=0.1 loss_cfg.load_w=0.2 \
   train_cfg.batch_size=64 train_cfg.n_epochs=200 train_cfg.lr=0.0001 train_cfg.checkpoint_epochs=50 \
   "train_cfg.run_name=${RUN_NAME}" fixed_train_set=/projects/extern/nhr/nhr_ni/nim00026/dir.project/daniela/data/train_data/cvrp/uniform/targets/fc_hgs_clean/n20_k4/ )
 if [ -n "${LATEST_CKPT:-}" ] && [ -f "${LATEST_CKPT}" ]; then
