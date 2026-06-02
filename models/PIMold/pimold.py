@@ -36,9 +36,10 @@ OLD_MODEL_SPECS = {
     20:  dict(layers=7, main_dim=256, n_hidden=1024),
     50:  dict(layers=9, main_dim=256, n_hidden=1024),
     # VRP100 ckpt at sup-vrp-copy/ICLR_2022/.../outs100/outs_2/VRP_model_100.pth
-    # was trained with FF hidden=512 (not 1024). State-dict shape:
-    #   perm_inv_net.feed_forwards.*.linear_1.nets.*.conv.weight = [512, 128, 1]
-    100: dict(layers=7, main_dim=128, n_hidden=512),
+    # differs from VRP20/VRP50 ckpts in TWO dims:
+    #   - FF hidden  = 512 (not 1024); embed conv weight [512,128,1]
+    #   - cities_dim = 4 (not 3); first embed conv weight [128,4,1]
+    100: dict(layers=7, main_dim=128, n_hidden=512, cities_dim=4),
 }
 # Shared model_params (src/eval1.py), in constructor argument order after main_dim.
 _SHARED = dict(
@@ -66,8 +67,9 @@ def build_old_model(problem_size: int, device: torch.device) -> torch.nn.Module:
         from VRPModel_attn import VRP_Net  # noqa: E402  (from vrp100_cluster/supvrp_0)
     else:
         from VRPModel_attn1 import VRP_Net  # noqa: E402
+    cities_dim = spec.get("cities_dim", _SHARED["cities_dim"])
     model = VRP_Net(
-        spec["layers"], _SHARED["depot_dim"], _SHARED["cities_dim"], _SHARED["fleet_dim"],
+        spec["layers"], _SHARED["depot_dim"], cities_dim, _SHARED["fleet_dim"],
         spec["main_dim"], _SHARED["avg_pool"], _SHARED["residual"], _SHARED["norm"],
         spec["n_hidden"], _SHARED["dropout"], _SHARED["self_pool"], _SHARED["embedding_norm"],
         _SHARED["softassign_layers"], _SHARED["weighting"], _SHARED["with_loads"],

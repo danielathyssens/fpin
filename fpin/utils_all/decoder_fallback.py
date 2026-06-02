@@ -1022,6 +1022,23 @@ def decode_vehicle_assignment_1(
             routes.append(route)
 
         # ---------------------------
+        # STEP 3b: fleet-cap repair
+        # ---------------------------
+        # STEP 2 may have opened an (M+1, M+2, ...)-th route to keep all routes
+        # capacity-feasible. That trades fleet-violation for capacity-feasibility,
+        # which costs c_v per excess route and drove ~27% fleet violations at
+        # VRP20 M=3 (paper Table 1). Now we try harder: merge excess routes back
+        # into the M kept routes via cheapest-insertion under capacity. If a
+        # customer truly can't fit (no residual capacity anywhere), the repair
+        # leaves it -- an honest violation. Conversion: routes [...,depot]-form
+        # if needed for repair API; the helper expects depot-bracketed routes.
+        if len(routes) > M:
+            # repair_routes_to_M_ineff expects routes with depot brackets [0,...,0]
+            bracketed = [[0, *r, 0] for r in routes]
+            bracketed = repair_routes_to_M_ineff(bracketed, dem, D, M, capacity)
+            routes = [r[1:-1] for r in bracketed]  # strip brackets
+
+        # ---------------------------
         # STEP 4: compute cost
         # ---------------------------
 
