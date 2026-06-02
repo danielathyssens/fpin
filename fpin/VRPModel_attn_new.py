@@ -18,6 +18,7 @@ class VRP_Net(nn.Module):
                  sinkhorn_assignment=False, sinkhorn_iters=3,
                  joint_customer_norm=False,
                  softassign_head=False, softassign_layers=3,
+                 softassign_log_domain=False,
                  vcount_aux_head=False):
         super().__init__()
 
@@ -132,6 +133,15 @@ class VRP_Net(nn.Module):
         # decodes to 0.10% gap-vs-optimum at N=6 (best of 6 configs tested).
         self.softassign_head = softassign_head
         self.softassign_layers = max(1, softassign_layers)
+        # F-PIN-AB: log-domain Sinkhorn for the softassign head. Avoids the
+        # numerical pathology of the multiplicative form (exp + clamp + divide)
+        # at sharp distributions -- exactly the regime an attention encoder
+        # drives toward (toy: H_cust ATTN=1.89 < POOL=2.14). Log-domain uses
+        # logsumexp throughout, gradient stable at all entropy levels.
+        # Mathematically equivalent fixed point; semantically identical output.
+        # Reference: Peyre & Cuturi 2019, Computational Optimal Transport,
+        # Sec. 4.2 (stable Sinkhorn iterations).
+        self.softassign_log_domain = softassign_log_domain
 
         # F-PIN-C: auxiliary "vehicle count" prediction head. A tiny MLP that
         # consumes the (mean) pooled global feature and predicts the optimal
@@ -306,7 +316,28 @@ class VRP_Net(nn.Module):
         # Returns pre-normalized log-probs; loss must consume them directly
         # (loss_cfg.softassign_head=True skips the redundant log_softmax).
         if self.softassign_head:
-            # Numerically stabilized exp(x - max).
+            if self.softassign_log_domain:
+                # F-PIN-AB: log-domain Sinkhorn. Same fixed point as the
+                # multiplicative form, but uses logsumexp throughout instead
+                # of exp/clamp/divide -- gradient stable at sharp output
+                # distributions (which is exactly what ATTN encoders produce,
+                # toy: H_cust 1.89 vs POOL 2.14). No clamp_min(eps) hacks.
+                log_out = edge_logits
+                for _ in range(self.softassign_layers):
+                    # depot row (i=0): per-vehicle softmax over j
+                    depot_log = log_out[:, :, :1, :]
+                    depot_log = depot_log - torch.logsumexp(depot_log, dim=-1, keepdim=True)
+                    # customer rows (i>0): joint over (m, j)
+                    cust_log = log_out[:, :, 1:, :]
+                    cust_log = cust_log - torch.logsumexp(cust_log, dim=(1, 3), keepdim=True)
+                    log_out = torch.cat([depot_log, cust_log], dim=2)
+                    log_out = log_out.transpose(2, 3)
+                if self.softassign_layers % 2 == 1:
+                    log_out = log_out.transpose(2, 3)
+                log_probs = log_out
+                edge_probs_for_decode = log_probs.exp()
+                return log_probs, edge_probs_for_decode
+            # Original multiplicative form (kept for A/B against AB).
             eps = 1e-8
             out = torch.exp(edge_logits - edge_logits.amax(dim=(-2, -1), keepdim=True))
             for _ in range(self.softassign_layers):

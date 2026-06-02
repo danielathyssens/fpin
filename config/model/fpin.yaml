@@ -35,6 +35,7 @@ model_cfg:
     joint_customer_norm: False    # F-PIN-S: per-customer joint (vehicle, next-node) softmax. Mirrors PIM softassign structural prior in a single softmax step. Loss must match (loss_cfg.joint_customer_norm).
     softassign_head: False        # F-PIN-A: full PIM 2022 MTSPSoftassign at the head (iterative depot per-vehicle + customer joint + transpose). Out-flow AND in-flow constraints. Loss must match (loss_cfg.softassign_head).
     softassign_layers: 3
+    softassign_log_domain: False  # F-PIN-AB: log-domain Sinkhorn for numerical stability at sharp distributions
     vcount_aux_head: False        # F-PIN-C: auxiliary MLP head predicting #vehicles used in Y* from pooled customer features. Enabled together with train_cfg.vcount_aux_w > 0.
     # n_soft_layers:
   loss_args:
