@@ -35,7 +35,10 @@ _VRP100_SRC = os.path.join(_SRC, "vrp100_cluster", "supvrp_0")
 OLD_MODEL_SPECS = {
     20:  dict(layers=7, main_dim=256, n_hidden=1024),
     50:  dict(layers=9, main_dim=256, n_hidden=1024),
-    100: dict(layers=7, main_dim=128, n_hidden=1024),
+    # VRP100 ckpt at sup-vrp-copy/ICLR_2022/.../outs100/outs_2/VRP_model_100.pth
+    # was trained with FF hidden=512 (not 1024). State-dict shape:
+    #   perm_inv_net.feed_forwards.*.linear_1.nets.*.conv.weight = [512, 128, 1]
+    100: dict(layers=7, main_dim=128, n_hidden=512),
 }
 # Shared model_params (src/eval1.py), in constructor argument order after main_dim.
 _SHARED = dict(

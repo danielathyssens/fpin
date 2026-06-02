@@ -52,6 +52,7 @@ LEARNED_METHOD_LABELS = {
     "POMO, single traj.",
     "POMO",
     "PARCO",
+    "PIM",
     "F-PIN (GT+Split)",
     "F-PIN (assign.)",
 }
@@ -65,6 +66,7 @@ DISPLAY_ORDER = [
     "POMO, single traj.",
     "POMO",
     "PARCO",
+    "PIM",
     "F-PIN (GT+Split)",
     "F-PIN (assign.)",
 ]
