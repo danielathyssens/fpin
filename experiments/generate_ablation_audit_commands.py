@@ -292,8 +292,10 @@ def resolve_profile(profile: Profile, cwd: Path) -> Profile:
             log_root=f"{repo}/cluster_logs",
         )
 
-    if repo_root.name == "fpin" and str(repo_root).startswith("/projects/extern/"):
-        remote_root = str(repo_root.parent)
+    if profile.name == "gwdg" and repo_root.name == "fpin":
+        remote_root = REMOTE_ROOT
+        if str(repo_root).startswith("/projects/extern/"):
+            remote_root = str(repo_root.parent)
         repo = str(repo_root)
         return Profile(
             name="gwdg",
