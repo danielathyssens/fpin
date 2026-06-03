@@ -31,6 +31,7 @@ class Profile:
     name: str
     repo: str
     train_target_root: str
+    test_data_root: str
     ckpt_existing_root: str
     output_root: str
     eval_root: str
@@ -66,6 +67,7 @@ PROFILES: Dict[str, Profile] = {
         name="local",
         repo=LOCAL_REPO,
         train_target_root=f"{LOCAL_REPO}/data/train_data/cvrp/uniform/targets/fc_hgs_clean",
+        test_data_root=f"{LOCAL_REPO}/data/test_data/cvrp/uniform",
         ckpt_existing_root=f"{LOCAL_REPO}/ckpts_from_gwdg",
         output_root=f"{LOCAL_REPO}/ablation_runs",
         eval_root=f"{LOCAL_REPO}/eval_logs",
@@ -75,9 +77,10 @@ PROFILES: Dict[str, Profile] = {
         name="gwdg",
         repo=GWDG_REPO,
         train_target_root=GWDG_TRAIN_TARGET_ROOT,
+        test_data_root=f"{REMOTE_ROOT}/data/test_data/cvrp/uniform",
         ckpt_existing_root=GWDG_OUTPUT_ROOT,
         output_root=GWDG_OUTPUT_ROOT,
-        eval_root=f"{GWDG_REPO}/eval_logs",
+        eval_root=f"{REMOTE_ROOT}/eval_logs",
         log_root=GWDG_LOG_ROOT,
     ),
 }
@@ -286,6 +289,7 @@ def resolve_profile(profile: Profile, cwd: Path) -> Profile:
             name="local",
             repo=repo,
             train_target_root=f"{repo}/data/train_data/cvrp/uniform/targets/fc_hgs_clean",
+            test_data_root=f"{repo}/data/test_data/cvrp/uniform",
             ckpt_existing_root=f"{repo}/ckpts_from_gwdg",
             output_root=f"{repo}/ablation_runs",
             eval_root=f"{repo}/eval_logs",
@@ -301,9 +305,10 @@ def resolve_profile(profile: Profile, cwd: Path) -> Profile:
             name="gwdg",
             repo=repo,
             train_target_root=f"{remote_root}/data/train_data/cvrp/uniform/targets/fc_hgs_clean",
+            test_data_root=f"{remote_root}/data/test_data/cvrp/uniform",
             ckpt_existing_root=f"{remote_root}/fpin_outputs",
             output_root=f"{remote_root}/fpin_outputs",
-            eval_root=f"{repo}/eval_logs",
+            eval_root=f"{remote_root}/eval_logs",
             log_root=f"{remote_root}/cluster_logs",
         )
 
@@ -451,6 +456,7 @@ def build_train_command(profile: Profile, stamp: str, scale: Scale, budget: Budg
 def build_eval_command(profile: Profile, stamp: str, scale: Scale, budget: Budget, variant_key: str, variant_overrides: Dict[str, object]) -> str:
     run_dir = train_dir(profile, stamp, budget, scale, variant_key)
     ckpt = f"{run_dir}/checkpoints/best.pt"
+    test_data_path = f"{profile.test_data_root}/cvrp{scale.graph_size}/{Path(scale.test_relpath).name}"
     parts = [
         "python run_fpin.py",
         f"env={scale.env}",
@@ -462,7 +468,7 @@ def build_eval_command(profile: Profile, stamp: str, scale: Scale, budget: Budge
         "eval_opts_cfg.decode_v_assign_type=assign_transition",
         f"eval_opts_cfg.nr_vehicles_eval={scale.fleet_size}",
         f"test_cfg.dataset_size={scale.test_dataset_size}",
-        f"data_file_path={q(f'{profile.repo}/{scale.test_relpath}')}",
+        f"data_file_path={q(test_data_path)}",
         f"checkpoint_load_path={q(ckpt)}",
         "test_cfg.add_ls=False",
         "number_runs=1",
