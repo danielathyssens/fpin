@@ -54,7 +54,7 @@ The audit is split into three budgets because “one setting for everything” i
 ### Medium
 
 - default recommended two-scale audit
-- `N20_k3` + `N60_k7`
+- `N20_k3` + `N50_k7`
 - `30` epochs
 - `30k` training samples
 - purpose: enough optimization to stabilize directional effects, while still short enough to run several variants
@@ -72,11 +72,11 @@ Why these values:
 - `30` epochs is the first point where architectural effects usually stop looking like pure initialization noise.
 - `75` epochs is long enough that “only learns later” variants have a real chance, but still far cheaper than replicating every ablation at the full main-run budget.
 
-Why `N20_k3` and `N60_k7`:
+Why `N20_k3` and `N50_k7`:
 
 - `N20_k3` is the cheapest setting and already has the local HGS target file.
-- `N60_k7` is the larger scale that matches the currently-running `A/AB/AC` branch and gives a real test of whether a gain survives scale-up.
-- I am **not** using `N50` as the second scale by default because your current concern is specifically whether the architecture survives the jump to a harder regime, not just a mid-scale interpolation.
+- `N50_k7` is the larger scale that still has direct old-PIM comparison values in the archive tables.
+- `N60_k7` is still useful as an extrapolation scale, but it is no longer the default audit scale because old PIM was not one of the paper-era comparison points there.
 
 
 ## Generator Script
@@ -99,7 +99,7 @@ python experiments/generate_ablation_audit_commands.py \
   --profile local \
   --budget medium \
   --phase all \
-  --scales n20_k3 n60_k7 \
+  --scales n20_k3 n50_k7 \
   --skip-existing \
   --write-dir /tmp/ablation_audit_cmds
 ```
@@ -112,7 +112,7 @@ python experiments/generate_ablation_audit_commands.py \
   --profile gwdg \
   --budget medium \
   --phase train \
-  --scales n20_k3 n60_k7 \
+  --scales n20_k3 n50_k7 \
   --write-dir /tmp/ablation_audit_submit \
   --submit
 ```

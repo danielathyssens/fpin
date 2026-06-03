@@ -91,6 +91,16 @@ SCALES: Dict[str, Scale] = {
         test_dataset_size=1000,
         target_glob="targets20*.npz",
     ),
+    "n50_k7": Scale(
+        key="n50_k7",
+        graph_size=50,
+        fleet_size=7,
+        env="cvrp50_unf",
+        train_folder="n50_k7",
+        test_relpath="data/test_data/cvrp/uniform/cvrp50/fc-cvrp_k7_seed213298_size1000.pt",
+        test_dataset_size=1000,
+        target_glob="targets50*.npz",
+    ),
     "n60_k7": Scale(
         key="n60_k7",
         graph_size=60,
@@ -210,6 +220,28 @@ EXISTING_HEATMAP_CKPTS = {
             "--pim-softassign-layers": 90,
         }),
         ("pim_attn1_n20_k3", "pim_attn1", "models/PIMold/logs/vrp20/VRP_model.pth", {}),
+    ],
+    "n50_k7": [
+        ("fpin_a_n50_k7", "fpin", "cvrp_50_uniform/train/fpin/fpin_a_n50_k7_unf_attn_2026-06-02_14-37-20/checkpoints/best.pt", {
+            "--softassign-head": None, "--softassign-layers": 3,
+            "--vehicle-cond-edge-head": None, "--use-attn": None, "--add-demand-weights": None,
+        }),
+        ("fpin_ab_n50_k7", "fpin", "cvrp_50_uniform/train/fpin/fpin_ab_n50_k7_unf_attn_2026-06-03_00-43-20/checkpoints/best.pt", {
+            "--softassign-head": None, "--softassign-layers": 3, "--softassign-log-domain": None,
+            "--vehicle-cond-edge-head": None, "--use-attn": None, "--add-demand-weights": None,
+        }),
+        ("fpin_ac_n50_k7", "fpin", "cvrp_50_uniform/train/fpin/fpin_ac_n50_k7_unf_attn_2026-06-02_16-49-39/checkpoints/best.pt", {
+            "--softassign-head": None, "--softassign-layers": 3, "--vcount-aux-head": None,
+            "--vehicle-cond-edge-head": None, "--use-attn": None, "--add-demand-weights": None,
+        }),
+        ("fpin_e3_n50_k7", "fpin", "cvrp_50_uniform/train/fpin/fpin_e3_n50_k7_unf_attn_2026-06-01_17-04-42/checkpoints/best-epoch-200.pt", {
+            "--sinkhorn-assignment": None, "--sinkhorn-iters": 3,
+            "--vehicle-cond-edge-head": None, "--use-attn": None,
+        }),
+        ("pim_soft_n50_k7", "pim_soft", "models/PIMold/logs/vrp50/VRP_model.pth", {
+            "--pim-softassign-layers": 90,
+        }),
+        ("pim_attn1_n50_k7", "pim_attn1", "models/PIMold/logs/vrp50/VRP_model.pth", {}),
     ],
     "n60_k7": [
         ("fpin_a_n60_k7", "fpin", "cvrp_60_uniform/train/fpin/fpin_a_n60_k7_unf_attn_2026-06-02_14-37-19/checkpoints/best.pt", {
@@ -488,7 +520,7 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", choices=sorted(PROFILES), default="local")
     ap.add_argument("--budget", choices=sorted(BUDGETS), default="medium")
-    ap.add_argument("--scales", nargs="+", choices=sorted(SCALES), default=["n20_k3", "n60_k7"])
+    ap.add_argument("--scales", nargs="+", choices=sorted(SCALES), default=["n20_k3", "n50_k7"])
     ap.add_argument("--phase", choices=["all", "heatmap", "train"], default="all")
     ap.add_argument("--variants", nargs="*", default=[key for key, _, _ in TRAIN_VARIANTS])
     ap.add_argument("--stamp", default="20260603")
