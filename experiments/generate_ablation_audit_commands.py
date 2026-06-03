@@ -34,6 +34,7 @@ class Profile:
     ckpt_existing_root: str
     output_root: str
     eval_root: str
+    log_root: str
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ PROFILES: Dict[str, Profile] = {
         ckpt_existing_root=f"{LOCAL_REPO}/ckpts_from_gwdg",
         output_root=f"{LOCAL_REPO}/ablation_runs",
         eval_root=f"{LOCAL_REPO}/eval_logs",
+        log_root=f"{LOCAL_REPO}/cluster_logs",
     ),
     "gwdg": Profile(
         name="gwdg",
@@ -76,6 +78,7 @@ PROFILES: Dict[str, Profile] = {
         ckpt_existing_root=GWDG_OUTPUT_ROOT,
         output_root=GWDG_OUTPUT_ROOT,
         eval_root=f"{GWDG_REPO}/eval_logs",
+        log_root=GWDG_LOG_ROOT,
     ),
 }
 
@@ -262,6 +265,55 @@ EXISTING_HEATMAP_CKPTS = {
 
 def q(value: str) -> str:
     return shlex.quote(value)
+
+
+def find_repo_root(start: Path) -> Path:
+    start = start.resolve()
+    for candidate in [start, *start.parents]:
+        if (candidate / ".git").exists():
+            return candidate
+    return start
+
+
+def resolve_profile(profile: Profile, cwd: Path) -> Profile:
+    repo_root = find_repo_root(cwd)
+
+    if profile.name == "local":
+        if repo_root.name != "fpin":
+            return profile
+        repo = str(repo_root)
+        return Profile(
+            name="local",
+            repo=repo,
+            train_target_root=f"{repo}/data/train_data/cvrp/uniform/targets/fc_hgs_clean",
+            ckpt_existing_root=f"{repo}/ckpts_from_gwdg",
+            output_root=f"{repo}/ablation_runs",
+            eval_root=f"{repo}/eval_logs",
+            log_root=f"{repo}/cluster_logs",
+        )
+
+    if repo_root.name == "fpin" and str(repo_root).startswith("/projects/extern/"):
+        remote_root = str(repo_root.parent)
+        repo = str(repo_root)
+        return Profile(
+            name="gwdg",
+            repo=repo,
+            train_target_root=f"{remote_root}/data/train_data/cvrp/uniform/targets/fc_hgs_clean",
+            ckpt_existing_root=f"{remote_root}/fpin_outputs",
+            output_root=f"{remote_root}/fpin_outputs",
+            eval_root=f"{repo}/eval_logs",
+            log_root=f"{remote_root}/cluster_logs",
+        )
+
+    return profile
+
+
+def validate_submit_profile(profile: Profile) -> None:
+    run_fpin = Path(profile.repo) / "run_fpin.py"
+    if not run_fpin.exists():
+        raise SystemExit(
+            f"Refusing to submit: resolved repo root does not contain run_fpin.py: {profile.repo}"
+        )
 
 
 def bool_str(value: bool) -> str:
@@ -495,16 +547,17 @@ def write_sbatch_scripts(profile: Profile, stamp: str, scale_keys: List[str], bu
                 f"#SBATCH --time={budget.sbatch_time}",
                 "#SBATCH --requeue",
                 "#SBATCH --mail-type=FAIL",
-                f"#SBATCH --output={GWDG_LOG_ROOT}/{run_name}_%j.log",
-                f"#SBATCH --error={GWDG_LOG_ROOT}/{run_name}_%j.err",
+                f"#SBATCH --output={profile.log_root}/{run_name}_%j.log",
+                f"#SBATCH --error={profile.log_root}/{run_name}_%j.err",
                 "set -eo pipefail",
-                f"mkdir -p {q(GWDG_LOG_ROOT)}",
+                f"mkdir -p {q(profile.log_root)}",
                 'source "${HOME}/miniconda3/etc/profile.d/conda.sh"',
                 "conda activate l2o_py310",
                 "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True",
-                f"export FPIN_OUTPUT_ROOT={q(GWDG_OUTPUT_ROOT)}",
+                f"export FPIN_OUTPUT_ROOT={q(profile.output_root)}",
                 'mkdir -p "${FPIN_OUTPUT_ROOT}"',
                 f"cd {q(profile.repo)}",
+                'test -f run_fpin.py || { echo "[fatal] run_fpin.py missing under $(pwd)" >&2; exit 2; }',
             ]
             cmd, _ = build_train_command(profile, stamp, scale, budget, variant_key, overrides)
             cmd = cmd.replace("PYTHONPATH=. python", "srun env PYTHONPATH=. python", 1)
@@ -532,7 +585,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    profile = PROFILES[args.profile]
+    profile = resolve_profile(PROFILES[args.profile], Path.cwd())
     budget = BUDGETS[args.budget]
 
     missing_variants = [v for v in args.variants if v not in {k for k, _, _ in TRAIN_VARIANTS}]
@@ -598,6 +651,7 @@ def main() -> None:
             raise SystemExit("--submit is only supported with --profile gwdg")
         if args.phase not in ("all", "train"):
             raise SystemExit("--submit only submits training jobs")
+        validate_submit_profile(profile)
         submit_dir = Path(args.write_dir) if args.write_dir else Path(profile.repo) / "batch_run_outputs" / f"ablation_audit_submit_{args.stamp}_{budget.name}"
         scripts = write_sbatch_scripts(profile, args.stamp, args.scales, budget, args.variants, submit_dir, do_submit=True)
         print("\n# Submitted sbatch scripts")
