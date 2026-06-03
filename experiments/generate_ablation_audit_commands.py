@@ -300,7 +300,7 @@ def wrap_skip_existing(target_path: str, command: str) -> str:
 
 
 def build_heatmap_command(profile: Profile, stamp: str, scale: Scale, tag: str, family: str, ckpt_rel: str, extra_flags: Dict[str, object]) -> tuple[str, str]:
-    out_dir = f"{profile.eval_root}/heatmap_audit_{stamp}/{scale.key}"
+    out_dir = f"{profile.eval_root}/heatmap_audit_{stamp}"
     out_json = f"{out_dir}/{tag}.json"
     parts = [
         "PYTHONPATH=. python experiments/heatmap_failure_audit.py",
@@ -522,7 +522,7 @@ def main() -> None:
             lines.append("")
             lines.append(f"# Data preamble for {scale.key}")
             lines.append(data_var_preamble(profile, scale))
-            lines.append(f"mkdir -p {q(f'{profile.eval_root}/heatmap_audit_{args.stamp}/{scale.key}')}")
+            lines.append(f"mkdir -p {q(f'{profile.eval_root}/heatmap_audit_{args.stamp}')}")
             for tag, family, ckpt_rel, extra_flags in EXISTING_HEATMAP_CKPTS.get(scale.key, []):
                 lines.append("")
                 cmd, out_json = build_heatmap_command(profile, args.stamp, scale, tag, family, ckpt_rel, extra_flags)
