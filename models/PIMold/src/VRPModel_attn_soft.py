@@ -62,7 +62,7 @@ class DistancesCapaToWeights(nn.Module):
 
         # remove self pool weight
         if not self.self_pool:
-            n_range = torch.arange(n).long().cuda()
+            n_range = torch.arange(n, device=dists.device).long()
             # Float(b x n x n x main_dim)
             idx_dist = n_range.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand(b, n, 1, self.main_dim)
             weights_dists.scatter_(dim=2, index=idx_dist, value=0)
@@ -241,7 +241,7 @@ class VRP_Net(nn.Module):
 
         ##### SET SCORE TO min_inf FOR STAYING AT SAME NODE #####
         min_inf = abs(output.min()) / 10
-        mask_diag = torch.eye(n, n).bool().cuda()
+        mask_diag = torch.eye(n, n, device=output.device).bool()
         mask_diag[0, 0] = 0
         output = output.masked_fill(mask_diag.unsqueeze(0).unsqueeze(1).expand(b, m, n, n), min_inf)
 

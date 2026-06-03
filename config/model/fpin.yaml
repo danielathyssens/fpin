@@ -37,6 +37,11 @@ model_cfg:
     softassign_layers: 3
     softassign_log_domain: False  # F-PIN-AB: log-domain Sinkhorn for numerical stability at sharp distributions
     vcount_aux_head: False        # F-PIN-C: auxiliary MLP head predicting #vehicles used in Y* from pooled customer features. Enabled together with train_cfg.vcount_aux_w > 0.
+    use_vehicle_id_embedding: True  # Ablation: ignore explicit vehicle IDs to restore full vehicle exchangeability upstream of the perm-invariant loss.
+    use_graph_encoder: True         # Ablation: bypass graph message passing and use only a learned node projection before the rest of the stack.
+    use_perm_inv_encoder: True      # Ablation: bypass PermInvNet and score directly from graph/fleet embeddings.
+    learnable_temperature: True     # Ablation: optionally freeze the edge-logit temperature instead of learning it.
+    initial_log_temperature: 0.0    # Ablation: start/fix a sharper temperature, e.g. -2.0 => temp ~= 0.14.
     # n_soft_layers:
   loss_args:
     simple_loss: False

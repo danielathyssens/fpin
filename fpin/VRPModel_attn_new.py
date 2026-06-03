@@ -19,25 +19,38 @@ class VRP_Net(nn.Module):
                  joint_customer_norm=False,
                  softassign_head=False, softassign_layers=3,
                  softassign_log_domain=False,
-                 vcount_aux_head=False):
+                 vcount_aux_head=False,
+                 use_vehicle_id_embedding=True,
+                 use_graph_encoder=True,
+                 use_perm_inv_encoder=True,
+                 learnable_temperature=True,
+                 initial_log_temperature=0.0):
         super().__init__()
 
         ##### ENCODER #####
 
         # Simple Fleet ID encoder
         self.max_fleet_length = max_fleet_length
+        self.use_vehicle_id_embedding = use_vehicle_id_embedding
+        self.use_graph_encoder = use_graph_encoder
+        self.use_perm_inv_encoder = use_perm_inv_encoder
         self.vehicle_embed = nn.Embedding(max_fleet_length, main_dim)  # e.g. embed_dim = main_dims[vehicle_idx]
         self.fleet_project = nn.Linear(260, main_dim)  # 256 target dim
 
-        # GAT graph encoder
-        self.graph_embedding = GraphEncoder(
-            node_dim=cities_in_dim + 1,
-            edge_dim=1,  # distance as scalar edge feature
-            hidden_dim=main_dim,
-            num_layers=3,  # num GNN layers
-            norm=norm,
-            dropout=dropout
-        )
+        # Graph encoder can be ablated to isolate whether message passing
+        # helps or hurts the downstream routing heatmap.
+        if use_graph_encoder:
+            self.graph_embedding = GraphEncoder(
+                node_dim=cities_in_dim + 1,
+                edge_dim=1,  # distance as scalar edge feature
+                hidden_dim=main_dim,
+                num_layers=3,  # num GNN layers
+                norm=norm,
+                dropout=dropout
+            )
+        else:
+            self.graph_embedding = None
+            self.raw_node_proj = nn.Linear(cities_in_dim + 1, main_dim)
 
         # vehicle context (attention)
         self.veh_to_node_attn = nn.MultiheadAttention(
@@ -61,15 +74,18 @@ class VRP_Net(nn.Module):
             self.distance_to_weights = lambda dists, demands: None
 
         # init perm inv net
-        self.perm_inv_net = PermInvNet(layers,
-                                       [depot_in_dim,
-                                        cities_in_dim,
-                                        fleet_in_dim], [main_dim] * 3,
-                                       [ff_hidden_dim] * 3, avg_pool=False,
-                                       residual=True, norm=True,
-                                       dropout=dropout, embeddings=False,
-                                       self_pool=False, embedding_norm=True,
-                                       use_attn=use_attn)
+        if use_perm_inv_encoder:
+            self.perm_inv_net = PermInvNet(layers,
+                                           [depot_in_dim,
+                                            cities_in_dim,
+                                            fleet_in_dim], [main_dim] * 3,
+                                           [ff_hidden_dim] * 3, avg_pool=False,
+                                           residual=True, norm=True,
+                                           dropout=dropout, embeddings=False,
+                                           self_pool=False, embedding_norm=True,
+                                           use_attn=use_attn)
+        else:
+            self.perm_inv_net = None
 
         # FC net comp. of single hidden layer
         self.linear_out_1 = PairwiseLinear(main_dim * 3, main_dim)
@@ -98,7 +114,10 @@ class VRP_Net(nn.Module):
                 nn.Linear(main_dim, main_dim), nn.ReLU(),
             )
             self.edge_score = nn.Linear(main_dim, 1)
-            self.log_temperature = nn.Parameter(torch.zeros(1))  # temp = exp(.), init 1.0
+            self.log_temperature = nn.Parameter(
+                torch.full((1,), float(initial_log_temperature)),
+                requires_grad=learnable_temperature,
+            )  # temp = exp(.)
 
         # E3: Sinkhorn assignment head. Computes a soft customer->vehicle assignment
         # (Sinkhorn-normalized so each customer's vehicle distribution is a simplex), and
@@ -210,14 +229,22 @@ class VRP_Net(nn.Module):
         ## FLEET
         vehicle_ids = fleet[:, :, 0].long()  # shape (B, M)
         veh_features = fleet[:, :, 1:]  # drop id column
-        fleet_emb = self.vehicle_embed(vehicle_ids)  # (B, M, D)
+        if self.use_vehicle_id_embedding:
+            fleet_emb = self.vehicle_embed(vehicle_ids)  # (B, M, D)
+        else:
+            fleet_emb = torch.zeros(
+                b, m, self.vehicle_embed.embedding_dim, device=fleet.device, dtype=fleet.dtype
+            )
         fleet_emb_ = torch.cat([veh_features, fleet_emb], dim=-1)
         fleet_embedding = self.fleet_project(fleet_emb_)  # [B, M, 256]
 
         ## GRAPH
         node_feats = torch.cat((depot, torch.cat((customers, dists[:, 1:, :1]), dim=2)), dim=1)
         edge_feats = weights_dists if weights_dists is not None else dists.unsqueeze(-1)
-        graph_emb = self.graph_embedding(node_feats, edge_feats)  # [B, N, main_dim]
+        if self.use_graph_encoder:
+            graph_emb = self.graph_embedding(node_feats, edge_feats)  # [B, N, main_dim]
+        else:
+            graph_emb = self.raw_node_proj(node_feats)  # [B, N, main_dim]
         # Split back into sets
         depot_embedding = graph_emb[:, :1, :]  # [B, 1, D]
         customers_embedding = graph_emb[:, 1:, :]  # [B, num_customers, D]
@@ -231,19 +258,22 @@ class VRP_Net(nn.Module):
             self._vcount_pred = None
 
         ### PermInvPoolNet ###
-        if weights_dists is None:
-            sets_weights = None
-        else:
-            depots_weights_dists = [weights_dists[:, :1, :1, :], weights_dists[:, :1, 1:, :], None]
-            others_weights_dists = [weights_dists[:, 1:, :1, :], weights_dists[:, 1:, 1:, :], None]
-            fleet_weights_dists = None
-            sets_weights = [depots_weights_dists, others_weights_dists, fleet_weights_dists]
+        if self.use_perm_inv_encoder:
+            if weights_dists is None:
+                sets_weights = None
+            else:
+                depots_weights_dists = [weights_dists[:, :1, :1, :], weights_dists[:, :1, 1:, :], None]
+                others_weights_dists = [weights_dists[:, 1:, :1, :], weights_dists[:, 1:, 1:, :], None]
+                fleet_weights_dists = None
+                sets_weights = [depots_weights_dists, others_weights_dists, fleet_weights_dists]
 
-        ########## RUN PERM.Inv.NET --> Sets! ##########
-        depot, customers, fleet = self.perm_inv_net([depot_embedding,
-                                                     customers_embedding,
-                                                     fleet_embedding],
-                                                    weights=sets_weights)
+            ########## RUN PERM.Inv.NET --> Sets! ##########
+            depot, customers, fleet = self.perm_inv_net([depot_embedding,
+                                                         customers_embedding,
+                                                         fleet_embedding],
+                                                        weights=sets_weights)
+        else:
+            depot, customers, fleet = depot_embedding, customers_embedding, fleet_embedding
 
         ######### OUTPUT CONSTRUCTION ########
         cities = torch.cat((depot, customers), dim=1)  # (b, n, d_model)
