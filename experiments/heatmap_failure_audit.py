@@ -140,6 +140,7 @@ def load_model(args: argparse.Namespace, device: torch.device):
             softassign_head=args.softassign_head,
             softassign_layers=args.softassign_layers,
             softassign_log_domain=args.softassign_log_domain,
+            global_edge_softmax=getattr(args, "global_edge_softmax", False),
             vcount_aux_head=args.vcount_aux_head,
             use_vehicle_id_embedding=args.use_vehicle_id_embedding,
             use_graph_encoder=args.use_graph_encoder,

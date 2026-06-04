@@ -19,6 +19,7 @@ class VRP_Net(nn.Module):
                  joint_customer_norm=False,
                  softassign_head=False, softassign_layers=3,
                  softassign_log_domain=False,
+                 global_edge_softmax=False,
                  vcount_aux_head=False,
                  use_vehicle_id_embedding=True,
                  use_graph_encoder=True,
@@ -151,6 +152,7 @@ class VRP_Net(nn.Module):
         # 0% fleet violation. Toy v2 (this repo) shows ATTN+MTSPSoftassign
         # decodes to 0.10% gap-vs-optimum at N=6 (best of 6 configs tested).
         self.softassign_head = softassign_head
+        self.global_edge_softmax = global_edge_softmax
         self.softassign_layers = max(1, softassign_layers)
         # F-PIN-AB: log-domain Sinkhorn for the softassign head. Avoids the
         # numerical pathology of the multiplicative form (exp + clamp + divide)
@@ -345,6 +347,23 @@ class VRP_Net(nn.Module):
         # all vehicles) and in-flow (each customer entered once) constraints.
         # Returns pre-normalized log-probs; loss must consume them directly
         # (loss_cfg.softassign_head=True skips the redundant log_softmax).
+        # F-PIN-G (global_edge_softmax): PIM-2022's output normalization -- ONE softmax
+        # over all n*n edges per vehicle, so each vehicle's heatmap sums to 1 globally and
+        # concentrates mass on the ~n edges of a clean tour (maximally committed, vs F-PIN's
+        # diffuse row/softassign mass). Keeps F-PIN's attention encoder + vehicle conditioning,
+        # so it is NOT a revert to OG PIM. Diagonal masked to forbid self-loops (depot 0,0 kept
+        # as a harmless no-op slot). Returns log-probs -> set loss_cfg.softassign_head=True.
+        if self.global_edge_softmax:
+            b_, m_, n_, _ = edge_logits.shape
+            eye = torch.eye(n_, device=edge_logits.device, dtype=torch.bool)
+            eye[0, 0] = False
+            # large finite negative (not -inf): keeps log_probs finite so the loss's
+            # -sum(target*log_probs) never hits 0*-inf=NaN on the masked diagonal.
+            masked = edge_logits.masked_fill(eye.view(1, 1, n_, n_), -1e9)
+            log_probs = F.log_softmax(masked.reshape(b_, m_, n_ * n_), dim=-1).reshape(b_, m_, n_, n_)
+            edge_probs_for_decode = log_probs.exp()
+            return log_probs, edge_probs_for_decode
+
         if self.softassign_head:
             if self.softassign_log_domain:
                 # F-PIN-AB: log-domain Sinkhorn. Same fixed point as the

@@ -131,3 +131,4 @@ loss_cfg:
   load_w: 0.3
   joint_customer_norm: ${model_cfg.model_args.joint_customer_norm}
   softassign_head: ${model_cfg.model_args.softassign_head}
+  global_edge_softmax: ${model_cfg.model_args.global_edge_softmax}

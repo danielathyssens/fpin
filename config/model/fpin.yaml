@@ -36,6 +36,7 @@ model_cfg:
     softassign_head: False        # F-PIN-A: full PIM 2022 MTSPSoftassign at the head (iterative depot per-vehicle + customer joint + transpose). Out-flow AND in-flow constraints. Loss must match (loss_cfg.softassign_head).
     softassign_layers: 3
     softassign_log_domain: False  # F-PIN-AB: log-domain Sinkhorn for numerical stability at sharp distributions
+    global_edge_softmax: False    # F-PIN-G: PIM 2022 output normalization -- one softmax over all n*n edges per vehicle (committed heatmap). Mutually exclusive with softassign_head; loss must match (loss_cfg.global_edge_softmax).
     vcount_aux_head: False        # F-PIN-C: auxiliary MLP head predicting #vehicles used in Y* from pooled customer features. Enabled together with train_cfg.vcount_aux_w > 0.
     use_vehicle_id_embedding: True  # Ablation: ignore explicit vehicle IDs to restore full vehicle exchangeability upstream of the perm-invariant loss.
     use_graph_encoder: True         # Ablation: bypass graph message passing and use only a learned node projection before the rest of the stack.

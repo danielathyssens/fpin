@@ -12,7 +12,7 @@ from fpin.utils_all.loss_utils import succ_labels_from_sparse, hungarian_match_f
 class VRPLoss(nn.Module):
     def __init__(self, start_weight=0.5, pen_w = 0.3, load_w = 0.5, simple_loss=False,
                  no_perms=False, size_average=True, with_penalty=True, with_load_loss=True, verbose=False,
-                 joint_customer_norm=False, softassign_head=False):
+                 joint_customer_norm=False, softassign_head=False, global_edge_softmax=False):
         super(VRPLoss, self).__init__()
         assert 0 <= start_weight <= 1, 'start_weight must be [0,1]'
 
@@ -31,6 +31,9 @@ class VRPLoss(nn.Module):
         # log_softmax(dim=-1) below.
         self.joint_customer_norm = joint_customer_norm
         self.softassign_head = softassign_head
+        # F-PIN-G: model returns log_probs already normalized by a global softmax
+        # over all n*n edges per vehicle. Skip the redundant log_softmax below.
+        self.global_edge_softmax = global_edge_softmax
 
         self._permutations = {}
 
@@ -72,7 +75,7 @@ class VRPLoss(nn.Module):
         # print("n",n)
         # Transform probs to log_probs and targets to float
         # log_probs = probs.log()
-        if self.joint_customer_norm or self.softassign_head:
+        if self.joint_customer_norm or self.softassign_head or self.global_edge_softmax:
             # 'logits' is actually pre-normalized log_probs from the model.
             #   F-PIN-S: depot per-vehicle softmax + customer joint (m, j) softmax.
             #   F-PIN-A: full MTSPSoftassign (both out- and in-flow constraints).
