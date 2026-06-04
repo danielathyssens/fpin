@@ -20,6 +20,9 @@ target_dir_for() {
     20_4)   printf '%s/n20_k4'  "$TARGET_ROOT" ;;
     50_6)   printf '%s/n50_k6'  "$TARGET_ROOT" ;;
     50_7)   printf '%s/n50_k7'  "$TARGET_ROOT" ;;
+    60_6)   printf '%s/n60_k6'  "$TARGET_ROOT" ;;
+    60_7)   printf '%s/n60_k7'  "$TARGET_ROOT" ;;
+    60_9)   printf '%s/data/train_data/cvrp/uniform/targets/converted_npz' "$PROJ" ;;
     100_9)  printf '%s/n100_k9' "$TARGET_ROOT" ;;
     100_10) printf '%s/n100_k10' "$TARGET_ROOT" ;;
     *) echo "No mapping for N=${n} M=${m}" >&2; return 1 ;;
@@ -108,5 +111,8 @@ gen 20 3
 gen 20 4
 gen 50 6
 gen 50 7
+gen 60 6
+gen 60 7
+gen 60 9
 gen 100 9
 gen 100 10
